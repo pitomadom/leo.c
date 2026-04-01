@@ -864,11 +864,11 @@ static void generate(Model *m, KVCache *kv, DarioField *dario,
     for (int step = 0; step < max_gen; step++) {
         if (step > 0) forward(m, prev, kv, logits);
 
-        for (int l = 0; l < (int)m->cfg.n_layers; l++) parliament_lifecycle(&parlaments[l]);
-
-        embed_lookup(emb_buf, emb_t, prev, H);
-        dario_update(dario, prev, emb_buf, H, V);
-        dario_apply(dario, logits, V);
+        /* DoE + Dario disabled for now — pure forward pass */
+        /* for (int l = 0; l < (int)m->cfg.n_layers; l++) parliament_lifecycle(&parlaments[l]); */
+        /* embed_lookup(emb_buf, emb_t, prev, H); */
+        /* dario_update(dario, prev, emb_buf, H, V); */
+        /* dario_apply(dario, logits, V); */
 
         float ent = compute_entropy(logits, V);
         float h_norm = ent / h_max;
@@ -939,6 +939,9 @@ int main(int argc, char **argv) {
         else if (strcmp(argv[i], "--tokens") == 0 && i+1 < argc) { token_file = argv[++i]; }
     }
 
+    int debug_logits = 0;
+    for (int i = 2; i < argc; i++) if (strcmp(argv[i], "--debug-logits") == 0) debug_logits = 1;
+
     if (token_file) {
         FILE *tf = fopen(token_file, "rb");
         if (!tf) { fprintf(stderr, "Cannot open %s\n", token_file); return 1; }
@@ -946,9 +949,42 @@ int main(int argc, char **argv) {
         int *toks = (int *)xmalloc(nt * sizeof(int));
         for (uint32_t i = 0; i < nt; i++) { uint32_t t; if (fread(&t, 4, 1, tf) < 1) break; toks[i] = (int)t; }
         fclose(tf);
-        printf("Loaded %d tokens\nLeo: ", (int)nt);
-        generate(m, &kv, &dario, parl, &rs, toks, (int)nt, MAX_GEN, 0.7f);
-        printf("  [H̄=%.3f resonance=%d]\n", rs.total_tokens > 0 ? rs.entropy_sum / rs.total_tokens : 0, rs.total_entries);
+
+        if (debug_logits) {
+            /* Just compute logits for the last prompt token, print top-10 */
+            float *logits = (float *)xmalloc(V * sizeof(float));
+            for (int i = 0; i < (int)nt; i++) forward(m, toks[i], &kv, logits);
+            /* Find top 10 */
+            int top[10]; float topv[10];
+            for (int i = 0; i < 10; i++) { top[i] = -1; topv[i] = -1e30f; }
+            for (int i = 0; i < V; i++) {
+                if (logits[i] > topv[9]) {
+                    topv[9] = logits[i]; top[9] = i;
+                    for (int j = 8; j >= 0; j--) {
+                        if (topv[j+1] > topv[j]) {
+                            float tv = topv[j]; topv[j] = topv[j+1]; topv[j+1] = tv;
+                            int ti = top[j]; top[j] = top[j+1]; top[j+1] = ti;
+                        }
+                    }
+                }
+            }
+            printf("C top-10 logits:\n");
+            for (int i = 0; i < 10; i++) printf("  %8d (%8.3f)\n", top[i], topv[i]);
+            double mean = 0, std = 0;
+            for (int i = 0; i < V; i++) mean += logits[i];
+            mean /= V;
+            for (int i = 0; i < V; i++) std += (logits[i]-mean)*(logits[i]-mean);
+            std = sqrt(std / V);
+            printf("mean=%.3f std=%.3f\n", mean, std);
+            printf("logits[236786]=%.3f\n", logits[236786]);
+            free(logits);
+        } else {
+            float temp = 0.7f;
+            for (int ii = 2; ii < argc; ii++) if (strcmp(argv[ii], "--greedy") == 0) temp = 0.0f;
+            printf("Loaded %d tokens\nLeo: ", (int)nt);
+            generate(m, &kv, &dario, parl, &rs, toks, (int)nt, MAX_GEN, temp);
+            printf("  [H̄=%.3f resonance=%d]\n", rs.total_tokens > 0 ? rs.entropy_sum / rs.total_tokens : 0, rs.total_entries);
+        }
         free(toks);
     } else {
         printf("Leo ready. Use --tokens FILE with pre-encoded prompts.\n");
