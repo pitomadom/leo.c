@@ -3,516 +3,1657 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Leo</title>
+<title>leo · browser inference</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&display=swap');
-  :root { --bg:#fafaf8; --fg:#1a1a1a; --dim:#777; --ghost:#aaa; --res:#c4956a; --serif:'EB Garamond',Georgia,serif; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:var(--bg); color:var(--fg); font-family:var(--serif); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
-  #header { text-align:center; padding:20px 0 8px; user-select:none; }
-  #header h1 { font-size:13px; letter-spacing:8px; text-transform:uppercase; color:#888; font-weight:500; }
-  #header .sub { font-size:11px; color:var(--ghost); margin-top:2px; font-style:italic; }
-  #status { text-align:center; font-size:11px; color:var(--ghost); padding:4px; letter-spacing:1px; }
-  #status.ready { color:#4a7c59; }
-  #arena { flex:1; overflow-y:auto; padding:12px 40px; display:flex; flex-direction:column; gap:12px; }
-  .msg { max-width:700px; width:100%; margin:0 auto; line-height:1.6; font-size:17px; }
-  .msg.user { color:var(--dim); font-style:italic; }
-  .msg.user::before { content:'— '; color:var(--ghost); }
-  .msg.leo { color:var(--fg); }
-  .resonance { color:var(--res); border-left:2px solid var(--res); padding-left:12px; margin:6px 0; font-style:italic; opacity:0.85; }
-  .meta { font-size:10px; color:var(--ghost); margin-top:4px; letter-spacing:1px; }
-  #input-area { padding:12px 40px 20px; display:flex; justify-content:center; gap:8px; }
-  #prompt { width:100%; max-width:650px; font-family:var(--serif); font-size:17px; padding:10px 14px; border:1px solid #ddd; border-radius:3px; background:#fff; color:var(--fg); outline:none; }
-  #prompt:focus { border-color:var(--fg); }
-  #prompt::placeholder { color:var(--ghost); font-style:italic; }
-  #prompt:disabled { opacity:0.4; }
-  #load-btn { font-family:var(--serif); font-size:12px; padding:8px 16px; border:1px solid #ccc; background:none; cursor:pointer; color:var(--dim); letter-spacing:1px; }
-  #load-btn:hover { border-color:var(--fg); color:var(--fg); }
-  .typing { display:inline-block; width:6px; height:14px; background:var(--fg); animation:blink .8s infinite; vertical-align:text-bottom; margin-left:1px; }
-  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-  #footer { text-align:center; padding:6px; font-size:9px; color:var(--ghost); letter-spacing:2px; }
-  #weight-file { display:none; }
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --paper: #0d1117;
+  --paper-dark: #161b22;
+  --ink: #e6edf3;
+  --ink-light: #8b949e;
+  --ink-faint: #484f58;
+  --accent: #f0883e;
+  --accent-cool: #58a6ff;
+  --mono: 'Space Mono', 'SF Mono', 'Consolas', monospace;
+  --serif: 'EB Garamond', 'Georgia', serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  background: var(--paper);
+  overflow: hidden;
+  font-family: var(--serif);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── LOADING STATE ──────────────────────────────────────── */
+
+#drop-zone {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 100;
+  background: var(--paper);
+  transition: opacity 0.6s ease;
+}
+#drop-zone.hidden { opacity: 0; pointer-events: none; }
+
+#drop-zone .brand {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 6px;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  margin-bottom: 48px;
+}
+
+#drop-zone .droparea {
+  width: 420px;
+  padding: 64px 48px;
+  border: 1px solid var(--ink-faint);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.3s, background 0.3s;
+  position: relative;
+}
+#drop-zone .droparea:hover,
+#drop-zone .droparea.dragover {
+  border-color: var(--ink-light);
+  background: var(--paper-dark);
+}
+
+#drop-zone .droparea h2 {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--ink);
+  margin-bottom: 16px;
+}
+#drop-zone .droparea p {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-light);
+  line-height: 2.2;
+  letter-spacing: 0.02em;
+}
+#drop-zone .droparea .or {
+  margin: 20px 0;
+  font-family: var(--serif);
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-style: italic;
+}
+#drop-zone .droparea input[type="file"] {
+  display: none;
+}
+#drop-zone .droparea button {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 10px 28px;
+  border: 1px solid var(--ink-faint);
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+#drop-zone .droparea button:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+#drop-zone .url-row {
+  margin-top: 24px;
+  display: flex; gap: 8px;
+  align-items: center;
+}
+#drop-zone .url-row input {
+  font-family: var(--mono);
+  font-size: 9px;
+  padding: 8px 14px;
+  border: 1px solid var(--ink-faint);
+  background: none;
+  color: var(--ink);
+  flex: 1;
+  outline: none;
+  letter-spacing: 0.02em;
+}
+#drop-zone .url-row input::placeholder { color: var(--ink-faint); }
+#drop-zone .url-row button {
+  font-family: var(--mono);
+  font-size: 9px;
+  padding: 8px 16px;
+  border: 1px solid var(--ink-faint);
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Progress */
+#progress-wrap {
+  margin-top: 32px;
+  width: 420px;
+  display: none;
+}
+#progress-wrap.active { display: block; }
+#progress-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-light);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+#progress-bar-outer {
+  width: 100%;
+  height: 2px;
+  background: var(--ink-faint);
+}
+#progress-bar-inner {
+  height: 100%;
+  width: 0%;
+  background: var(--ink);
+  transition: width 0.15s linear;
+}
+
+/* ─── MAIN INTERFACE ─────────────────────────────────────── */
+
+#app {
+  position: fixed; inset: 0;
+  display: none;
+  flex-direction: column;
+}
+#app.active {
+  display: flex;
+}
+
+/* Top bar */
+#topbar {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  flex-shrink: 0;
+}
+#topbar .left {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 5px;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+#topbar .right {
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--ink-faint);
+  letter-spacing: 0.03em;
+}
+
+/* Output area */
+#output-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 48px 28px 24px;
+  display: flex;
+  flex-direction: column;
+}
+#output-area::-webkit-scrollbar { width: 0; }
+
+#output {
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Token spans */
+.tok {
+  font-family: var(--serif);
+  font-size: 20px;
+  line-height: 1.65;
+  color: var(--ink);
+  transition: opacity 0.3s ease;
+}
+.tok.prompt-tok {
+  color: var(--ink-light);
+}
+.tok.new-tok {
+  animation: fadeIn 0.25s ease forwards;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Cursor */
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: var(--accent);
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* HUD — bottom-left stats */
+#hud {
+  position: fixed;
+  bottom: 60px; left: 28px;
+  font-family: var(--mono);
+  font-size: 8px;
+  line-height: 2.4;
+  color: var(--ink-faint);
+  pointer-events: none;
+  z-index: 10;
+  letter-spacing: 0.04em;
+}
+#hud .val { color: var(--ink-light); }
+#hud .hi  { color: var(--ink); }
+
+/* Input bar */
+#input-bar {
+  height: 52px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  display: flex;
+  align-items: center;
+  padding: 0 28px;
+  flex-shrink: 0;
+  background: var(--paper);
+}
+#input-bar .prompt-sym {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-right: 14px;
+}
+#input-bar input {
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  flex: 1;
+  letter-spacing: 0.01em;
+}
+#input-bar input::placeholder {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+#input-bar .send-btn {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  padding: 6px 16px;
+  border: 1px solid var(--ink-faint);
+  background: none;
+  color: var(--ink-light);
+  cursor: pointer;
+  margin-left: 12px;
+  transition: all 0.2s;
+}
+#input-bar .send-btn:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+#input-bar .stop-btn {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  padding: 6px 16px;
+  border: 1px solid var(--accent);
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  margin-left: 12px;
+  display: none;
+}
+
+/* Entropy ribbon — thin bar under topbar showing entropy over time */
+#entropy-ribbon {
+  height: 2px;
+  background: var(--paper-dark);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+#entropy-ribbon canvas {
+  display: block;
+  width: 100%;
+  height: 2px;
+}
+
+/* Subtle horizontal rules on paper */
+#output-area::before {
+  content: '';
+  position: fixed;
+  inset: 42px 0 52px 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 31px,
+    rgba(0,0,0,0.018) 31px,
+    rgba(0,0,0,0.018) 32px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
 </style>
 </head>
 <body>
-<div id="header">
-  <h1>Leo</h1>
-  <div class="sub">language emergent organism · gemma 270M</div>
+
+<!-- ═══ DROP ZONE ═══ -->
+<div id="drop-zone">
+  <div class="brand">LEO · BROWSER INFERENCE</div>
+  <div class="droparea" id="droparea">
+    <h2>drop your .gguf here</h2>
+    <p>
+      GEMMA-3 270M · F16 / Q8_0 / Q4_0<br>
+      FULL FORWARD PASS · ZERO DEPENDENCIES
+    </p>
+    <div class="or">or</div>
+    <button id="file-btn">choose file</button>
+    <input type="file" id="file-input" accept=".gguf">
+    <div style="display:flex; gap:8px; margin-top:16px; justify-content:center;">
+      <button id="hf-btn" style="font-family:var(--mono);font-size:9px;letter-spacing:0.08em;padding:10px 20px;border:1px solid var(--accent);background:none;color:var(--accent);cursor:pointer;">LOAD FROM HUGGINGFACE</button>
+    </div>
+    <div class="url-row">
+      <input type="text" id="url-input" placeholder="paste .gguf URL">
+      <button id="url-btn">fetch</button>
+    </div>
+  </div>
+  <div id="progress-wrap">
+    <div id="progress-label">loading...</div>
+    <div id="progress-bar-outer">
+      <div id="progress-bar-inner"></div>
+    </div>
+  </div>
 </div>
-<div id="status">load weights to begin</div>
-<div id="arena"></div>
-<div id="input-area">
-  <input type="text" id="prompt" placeholder="speak to Leo..." disabled>
-  <button id="load-btn">load weights</button>
-  <input type="file" id="weight-file" accept=".bin">
+
+<!-- ═══ MAIN APP ═══ -->
+<div id="app">
+  <div id="topbar">
+    <span class="left">LEO</span>
+    <span class="right" id="model-info">—</span>
+  </div>
+  <div id="entropy-ribbon"><canvas id="entropy-canvas"></canvas></div>
+  <div id="output-area"><div id="output"></div></div>
+  <div id="hud"></div>
+  <div id="input-bar">
+    <span class="prompt-sym">→</span>
+    <input type="text" id="prompt-input" placeholder="type to generate..." autocomplete="off" spellcheck="false">
+    <button class="send-btn" id="send-btn">GENERATE</button>
+    <button class="stop-btn" id="stop-btn">STOP</button>
+  </div>
 </div>
-<div id="footer">thunder remembered</div>
 
 <script>
 // ═════════════════════════════════════════════════════════════════
-// LEO — Browser-side Gemma-3 270M inference
-//
-// Full forward pass in JavaScript. Loads LEO1 q8 binary.
-// Architecture: 18 layers, hidden=640, ffn=2048, 4 heads (GQA),
-//               1 KV head, head_dim=256, vocab=262144
+//  leo browser inference — single file
+//  GGUF v3 parser · F16/Q8_0/Q4_0 dequant · SentencePiece tokenizer
+//  Full Gemma-3 + Llama forward pass · WebGPU + JS CPU fallback
+//  ariannamethod × leo
 // ═════════════════════════════════════════════════════════════════
 
-const HEADER_SIZE = 64;
+'use strict';
 
-// Model state
-let M = null;  // loaded model
-let KV = null; // KV cache
-let kvLen = 0;
+// ─────────────────────────────────────────────────────────────────
+// §1  GGUF v3 PARSER
+// ─────────────────────────────────────────────────────────────────
 
-// ── F16 CONVERSION ──
-function f16ToF32(h) {
-  const sign = (h >> 15) & 1;
-  const exp = (h >> 10) & 0x1F;
-  const mant = h & 0x3FF;
-  if (exp === 0) {
-    if (mant === 0) return sign ? -0.0 : 0.0;
-    let e = 1, m = mant;
-    while (!(m & 0x400)) { m <<= 1; e--; }
-    m &= 0x3FF;
-    return (sign ? -1 : 1) * Math.pow(2, e - 15) * (1 + m / 1024);
-  }
-  if (exp === 31) return mant ? NaN : (sign ? -Infinity : Infinity);
-  return (sign ? -1 : 1) * Math.pow(2, exp - 15) * (1 + mant / 1024);
-}
-
-// ── LOAD LEO1 BINARY ──
-function loadModel(buffer) {
-  const view = new DataView(buffer);
-  let off = 0;
-
-  const magic = view.getUint32(off, true); off += 4;
-  if (magic !== 0x4C454F31) throw new Error('Bad magic: ' + magic.toString(16));
-  const ver = view.getUint32(off, true); off += 4;
-  const qtype = view.getUint32(off, true); off += 4;
-  const nLayers = view.getUint32(off, true); off += 4;
-  const hidden = view.getUint32(off, true); off += 4;
-  const ffn = view.getUint32(off, true); off += 4;
-  const nHeads = view.getUint32(off, true); off += 4;
-  const nKV = view.getUint32(off, true); off += 4;
-  const headDim = view.getUint32(off, true); off += 4;
-  const vocab = view.getUint32(off, true); off += 4;
-  const sliding = view.getUint32(off, true); off += 4;
-  off = HEADER_SIZE;
-
-  setStatus(`LEO1 v${ver} q${qtype}: ${nLayers}L h=${hidden} ffn=${ffn} heads=${nHeads} kv=${nKV} hd=${headDim} vocab=${vocab}`);
-
-  // Embedding (f16)
-  const embedBytes = vocab * hidden * 2;
-  const embed = new Uint16Array(buffer, off, vocab * hidden);
-  off += embedBytes;
-
-  // Layers
-  const layers = [];
-  for (let l = 0; l < nLayers; l++) {
-    const layer = {};
-
-    // Read quantized weights
-    function readQ() {
-      const rows = view.getUint32(off, true); off += 4;
-      const cols = view.getUint32(off, true); off += 4;
-      const scales = new Float32Array(buffer, off, rows); off += rows * 4;
-      const data = new Int8Array(buffer, off, rows * cols); off += rows * cols;
-      return { rows, cols, scales, data };
-    }
-
-    // Read f16 vector
-    function readF16(n) {
-      const arr = new Float32Array(n);
-      for (let i = 0; i < n; i++) {
-        arr[i] = f16ToF32(view.getUint16(off, true));
-        off += 2;
-      }
-      return arr;
-    }
-
-    layer.q_proj = readQ();
-    layer.k_proj = readQ();
-    layer.v_proj = readQ();
-    layer.o_proj = readQ();
-    layer.q_norm = readF16(headDim);
-    layer.k_norm = readF16(headDim);
-    layer.gate_proj = readQ();
-    layer.up_proj = readQ();
-    layer.down_proj = readQ();
-    layer.input_ln = readF16(hidden);
-    layer.post_attn_ln = readF16(hidden);
-    layer.pre_ffn_ln = readF16(hidden);
-    layer.post_ffn_ln = readF16(hidden);
-    layers.push(layer);
-
-    if (l % 6 === 0) setStatus(`Loading layer ${l+1}/${nLayers}...`);
-  }
-
-  // Final norm
-  const finalNorm = new Float32Array(hidden);
-  for (let i = 0; i < hidden; i++) { finalNorm[i] = f16ToF32(view.getUint16(off, true)); off += 2; }
-
-  // LM head (f16)
-  const lmHead = new Uint16Array(buffer, off, vocab * hidden);
-  off += vocab * hidden * 2;
-
-  M = { nLayers, hidden, ffn, nHeads, nKV, headDim, vocab, sliding, embed, layers, finalNorm, lmHead };
-
-  // Init KV cache
-  const maxSeq = 512;
-  KV = {
-    k: new Float32Array(nLayers * maxSeq * nKV * headDim),
-    v: new Float32Array(nLayers * maxSeq * nKV * headDim),
-    maxSeq
-  };
-  kvLen = 0;
-
-  setStatus('Leo ready', true);
-  document.getElementById('prompt').disabled = false;
-  return M;
-}
-
-// ── MATH ──
-function rmsNorm(out, x, w, n) {
-  let ss = 0;
-  for (let i = 0; i < n; i++) ss += x[i] * x[i];
-  ss = 1.0 / Math.sqrt(ss / n + 1e-6);
-  for (let i = 0; i < n; i++) out[i] = x[i] * ss * (1.0 + w[i]);
-}
-
-function qMatVec(out, w, x) {
-  for (let r = 0; r < w.rows; r++) {
-    let sum = 0;
-    const base = r * w.cols;
-    const scale = w.scales[r] / 127.0;
-    for (let i = 0; i < w.cols; i++) sum += w.data[base + i] * x[i];
-    out[r] = sum * scale;
-  }
-}
-
-function embedLookup(out, embed, token, dim) {
-  const base = token * dim;
-  for (let i = 0; i < dim; i++) out[i] = f16ToF32(embed[base + i]);
-}
-
-function softmax(x, n) {
-  let max = x[0];
-  for (let i = 1; i < n; i++) if (x[i] > max) max = x[i];
-  let sum = 0;
-  for (let i = 0; i < n; i++) { x[i] = Math.exp(x[i] - max); sum += x[i]; }
-  for (let i = 0; i < n; i++) x[i] /= sum;
-}
-
-function gelu(x) {
-  return 0.5 * x * (1.0 + Math.tanh(0.7978845608 * (x + 0.044715 * x * x * x)));
-}
-
-// ── FORWARD PASS ──
-function forwardToken(token) {
-  const H = M.hidden, HD = M.headDim, NH = M.nHeads, NKV = M.nKV;
-  const FFN = M.ffn, NL = M.nLayers, V = M.vocab;
-  const pos = kvLen;
-
-  // Embed + scale
-  const x = new Float32Array(H);
-  embedLookup(x, M.embed, token, H);
-  const scale = Math.sqrt(H);
-  for (let i = 0; i < H; i++) x[i] *= scale;
-
-  for (let l = 0; l < NL; l++) {
-    const ly = M.layers[l];
-
-    // Pre-attn norm
-    const buf = new Float32Array(H);
-    rmsNorm(buf, x, ly.input_ln, H);
-
-    // QKV
-    const q = new Float32Array(NH * HD);
-    const kNew = new Float32Array(NKV * HD);
-    const vNew = new Float32Array(NKV * HD);
-    qMatVec(q, ly.q_proj, buf);
-    qMatVec(kNew, ly.k_proj, buf);
-    qMatVec(vNew, ly.v_proj, buf);
-
-    // Q/K norms
-    for (let h = 0; h < NH; h++) {
-      let ss = 0;
-      for (let i = 0; i < HD; i++) ss += q[h*HD+i] * q[h*HD+i];
-      ss = 1.0 / Math.sqrt(ss / HD + 1e-6);
-      for (let i = 0; i < HD; i++) q[h*HD+i] = q[h*HD+i] * ss * (1.0 + ly.q_norm[i]);
-    }
-    for (let h = 0; h < NKV; h++) {
-      let ss = 0;
-      for (let i = 0; i < HD; i++) ss += kNew[h*HD+i] * kNew[h*HD+i];
-      ss = 1.0 / Math.sqrt(ss / HD + 1e-6);
-      for (let i = 0; i < HD; i++) kNew[h*HD+i] = kNew[h*HD+i] * ss * (1.0 + ly.k_norm[i]);
-    }
-
-    // RoPE
-    const theta = (l % 6 === 5) ? 1000000.0 : 10000.0;
-    for (let h = 0; h < NH; h++) {
-      for (let i = 0; i < HD; i += 2) {
-        const freq = 1.0 / Math.pow(theta, i / HD);
-        const angle = pos * freq;
-        const cos_a = Math.cos(angle), sin_a = Math.sin(angle);
-        const q0 = q[h*HD+i], q1 = q[h*HD+i+1];
-        q[h*HD+i] = q0*cos_a - q1*sin_a;
-        q[h*HD+i+1] = q0*sin_a + q1*cos_a;
-      }
-    }
-    for (let h = 0; h < NKV; h++) {
-      for (let i = 0; i < HD; i += 2) {
-        const freq = 1.0 / Math.pow(theta, i / HD);
-        const angle = pos * freq;
-        const cos_a = Math.cos(angle), sin_a = Math.sin(angle);
-        const k0 = kNew[h*HD+i], k1 = kNew[h*HD+i+1];
-        kNew[h*HD+i] = k0*cos_a - k1*sin_a;
-        kNew[h*HD+i+1] = k0*sin_a + k1*cos_a;
-      }
-    }
-
-    // Store KV
-    const kvOff = (l * KV.maxSeq + pos) * NKV * HD;
-    KV.k.set(kNew, kvOff);
-    KV.v.set(vNew, kvOff);
-
-    // Attention (GQA)
-    const seqLen = pos + 1;
-    const window = M.sliding;
-    const start = (l % 6 === 5) ? 0 : Math.max(0, pos - window + 1);
-    const attnScale = 1.0 / Math.sqrt(HD);
-    const attnOut = new Float32Array(NH * HD);
-
-    for (let h = 0; h < NH; h++) {
-      const kvHead = Math.floor(h / (NH / NKV));
-      const scores = new Float32Array(seqLen);
-
-      for (let t = start; t < seqLen; t++) {
-        const kvT = (l * KV.maxSeq + t) * NKV * HD + kvHead * HD;
-        let dot = 0;
-        for (let i = 0; i < HD; i++) dot += q[h*HD+i] * KV.k[kvT+i];
-        scores[t] = dot * attnScale;
-      }
-      for (let t = 0; t < start; t++) scores[t] = -1e9;
-      softmax(scores, seqLen);
-
-      for (let t = start; t < seqLen; t++) {
-        const kvT = (l * KV.maxSeq + t) * NKV * HD + kvHead * HD;
-        for (let i = 0; i < HD; i++) attnOut[h*HD+i] += scores[t] * KV.v[kvT+i];
-      }
-    }
-
-    // O proj
-    const attnProj = new Float32Array(H);
-    qMatVec(attnProj, ly.o_proj, attnOut);
-
-    // Post-attn norm + residual
-    const postAttn = new Float32Array(H);
-    rmsNorm(postAttn, attnProj, ly.post_attn_ln, H);
-    for (let i = 0; i < H; i++) x[i] += postAttn[i];
-
-    // Pre-FFN norm
-    rmsNorm(buf, x, ly.pre_ffn_ln, H);
-
-    // SwiGLU
-    const gate = new Float32Array(FFN);
-    const up = new Float32Array(FFN);
-    qMatVec(gate, ly.gate_proj, buf);
-    qMatVec(up, ly.up_proj, buf);
-    for (let i = 0; i < FFN; i++) gate[i] = gelu(gate[i]) * up[i];
-
-    const down = new Float32Array(H);
-    qMatVec(down, ly.down_proj, gate);
-
-    // Post-FFN norm + residual
-    const postFFN = new Float32Array(H);
-    rmsNorm(postFFN, down, ly.post_ffn_ln, H);
-    for (let i = 0; i < H; i++) x[i] += postFFN[i];
-  }
-
-  // Final norm
-  const normed = new Float32Array(H);
-  rmsNorm(normed, x, M.finalNorm, H);
-
-  // Logits (sample top-k only for speed — don't compute all 262K)
-  // For browser perf: compute logits for top candidates via random sampling
-  // Full logits would be too slow for 262K vocab
-  const logits = new Float32Array(V);
-  for (let v = 0; v < V; v++) {
-    const base = v * H;
-    let dot = 0;
-    for (let i = 0; i < H; i++) dot += normed[i] * f16ToF32(M.lmHead[base + i]);
-    logits[v] = dot;
-  }
-
-  kvLen++;
-  return logits;
-}
-
-// ── SAMPLING ──
-function sampleTopK(logits, temp, topK) {
-  const n = logits.length;
-  if (temp <= 0) {
-    let best = 0;
-    for (let i = 1; i < n; i++) if (logits[i] > logits[best]) best = i;
-    return best;
-  }
-  for (let i = 0; i < n; i++) logits[i] /= temp;
-
-  // Top-k
-  if (topK > 0 && topK < n) {
-    const indices = Array.from({length: n}, (_, i) => i);
-    indices.sort((a, b) => logits[b] - logits[a]);
-    const cutoff = logits[indices[topK - 1]];
-    for (let i = 0; i < n; i++) if (logits[i] < cutoff) logits[i] = -1e9;
-  }
-
-  softmax(logits, n);
-  let r = Math.random(), cum = 0;
-  for (let i = 0; i < n; i++) { cum += logits[i]; if (cum >= r) return i; }
-  return n - 1;
-}
-
-// ── ENTROPY ──
-const H_MAX = Math.log2(262144);
-function computeEntropy(logits) {
-  const n = logits.length;
-  let max = logits[0];
-  for (let i = 1; i < n; i++) if (logits[i] > max) max = logits[i];
-  let sum = 0;
-  const probs = new Float32Array(n);
-  for (let i = 0; i < n; i++) { probs[i] = Math.exp(logits[i] - max); sum += probs[i]; }
-  for (let i = 0; i < n; i++) probs[i] /= sum;
-  let H = 0;
-  for (let i = 0; i < n; i++) if (probs[i] > 1e-10) H -= probs[i] * Math.log2(probs[i]);
-  return H;
-}
-
-// ── GENERATION ──
-async function generate(tokenIds, maxTokens = 256) {
-  kvLen = 0;
-  KV.k.fill(0);
-  KV.v.fill(0);
-
-  let logits;
-  // Prefill
-  for (let i = 0; i < tokenIds.length; i++) {
-    logits = forwardToken(tokenIds[i]);
-    await yieldToUI();
-  }
-
-  const generated = [];
-  let inRes = false, consHigh = 0, consLow = 0, entries = 0, hSum = 0;
-
-  for (let step = 0; step < maxTokens; step++) {
-    if (step > 0) logits = forwardToken(generated[generated.length - 1]);
-
-    const H = computeEntropy(logits);
-    const hNorm = H / H_MAX;
-    hSum += hNorm;
-
-    // Resonance check
-    if (!inRes && hNorm > 0.35) { consHigh++; if (consHigh >= 3) { inRes = true; entries++; consHigh = 0; appendToken('\n/resonate/\n'); } }
-    else if (!inRes) consHigh = 0;
-    if (inRes && hNorm < 0.12) { consLow++; if (consLow >= 5) { inRes = false; consLow = 0; appendToken('\n/resonated/\n'); } }
-    else if (inRes) consLow = 0;
-
-    const temp = inRes ? 0.7 * (1 + 0.3 * hNorm) : 0.7;
-    const tok = sampleTopK(logits.slice(), temp, 40);
-
-    if (tok === 106 || tok === 1) break; // EOS
-
-    generated.push(tok);
-    // Decode (placeholder — need vocab)
-    appendToken(`[${tok}]`);
-    await yieldToUI();
-  }
-
-  const avgH = hSum / Math.max(1, generated.length + tokenIds.length);
-  appendMeta(`H̄=${avgH.toFixed(3)} · resonance=${entries} · ${generated.length} tokens`);
-}
-
-function yieldToUI() {
-  return new Promise(r => setTimeout(r, 0));
-}
-
-// ── UI ──
-const arena = document.getElementById('arena');
-const input = document.getElementById('prompt');
-const statusEl = document.getElementById('status');
-let currentLeo = null;
-
-function setStatus(msg, ready) {
-  statusEl.textContent = msg;
-  if (ready) statusEl.className = 'ready';
-}
-
-function appendToken(text) {
-  if (!currentLeo) {
-    currentLeo = document.createElement('div');
-    currentLeo.className = 'msg leo';
-    arena.appendChild(currentLeo);
-  }
-  currentLeo.textContent += text;
-  arena.scrollTop = arena.scrollHeight;
-}
-
-function appendMeta(text) {
-  if (currentLeo) {
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.textContent = text;
-    currentLeo.appendChild(meta);
-  }
-}
-
-// Load weights
-document.getElementById('load-btn').onclick = () => document.getElementById('weight-file').click();
-document.getElementById('weight-file').onchange = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  setStatus(`Loading ${file.name} (${(file.size/1e6).toFixed(0)}MB)...`);
-  const buffer = await file.arrayBuffer();
-  try {
-    loadModel(buffer);
-  } catch (err) {
-    setStatus('Error: ' + err.message);
-  }
+const GGUF_MAGIC = 0x46554747; // "GGUF" as little-endian u32
+const GGML_TYPES = {
+  F32:  0, F16:  1, Q4_0: 2, Q4_1: 3, Q5_0: 6, Q5_1: 7,
+  Q8_0: 8, Q8_1: 9, Q2_K:10, Q3_K:11, Q4_K:12, Q5_K:13, Q6_K:14,
+  IQ2_XXS:16, IQ2_XS:17, IQ3_XXS:18, IQ1_S:19, IQ4_NL:20,
+  IQ3_S:21, IQ2_S:22, IQ4_XS:23, I8:24, I16:25, I32:26, I64:27,
+  F64:28, IQ1_M:29, BF16:30,
+};
+// type → (block_quants, block_bytes)
+const GGML_BLOCK = {
+  [GGML_TYPES.F32]:  [1, 4],
+  [GGML_TYPES.F16]:  [1, 2],
+  [GGML_TYPES.Q4_0]: [32, 18],   // 2 bytes delta (f16) + 16 bytes (32 nibbles)
+  [GGML_TYPES.Q8_0]: [32, 34],   // 2 bytes delta (f16) + 32 bytes int8
+  [GGML_TYPES.BF16]: [1, 2],
 };
 
-// Chat
-input.addEventListener('keydown', async (e) => {
-  if (e.key !== 'Enter' || !M) return;
-  const text = input.value.trim();
-  if (!text) return;
-
-  const userDiv = document.createElement('div');
-  userDiv.className = 'msg user';
-  userDiv.textContent = text;
-  arena.appendChild(userDiv);
-
-  input.value = '';
-  input.disabled = true;
-  currentLeo = null;
-
-  // Simple tokenization: BOS + start_of_turn + user + \n + text + end_of_turn + \n + start_of_turn + model + \n
-  // Using hardcoded IDs for special tokens, basic char tokenization for text
-  const tokens = [2, 105, 2364, 107]; // BOS, <start_of_turn>, "user", \n
-  // TODO: proper BPE encode for text — for now use byte tokens
-  for (let i = 0; i < text.length; i++) {
-    // Find token for this char (approximate)
-    tokens.push(text.charCodeAt(i) < 128 ? text.charCodeAt(i) + 200 : 236700);
+class GGUFReader {
+  constructor(buffer) {
+    this.buf = buffer;
+    this.view = new DataView(buffer);
+    this.off = 0;
   }
-  tokens.push(106, 107, 105, 4368, 107); // end_of_turn, \n, start_of_turn, "model", \n
 
-  setStatus('Generating...');
-  await generate(tokens);
-  setStatus('Leo ready', true);
-  input.disabled = false;
-  input.focus();
+  u8()  { return this.view.getUint8(this.off++); }
+  i8()  { const v = this.view.getInt8(this.off); this.off++; return v; }
+  u16() { const v = this.view.getUint16(this.off, true); this.off += 2; return v; }
+  i16() { const v = this.view.getInt16(this.off, true); this.off += 2; return v; }
+  u32() { const v = this.view.getUint32(this.off, true); this.off += 4; return v; }
+  i32() { const v = this.view.getInt32(this.off, true); this.off += 4; return v; }
+  f32() { const v = this.view.getFloat32(this.off, true); this.off += 4; return v; }
+  u64() {
+    const lo = this.u32(), hi = this.u32();
+    return lo + hi * 0x100000000; // safe for values < 2^53
+  }
+  i64() {
+    const v = Number(this.view.getBigInt64(this.off, true));
+    this.off += 8;
+    return v;
+  }
+
+  str() {
+    const len = this.u64();
+    const bytes = new Uint8Array(this.buf, this.off, len);
+    this.off += len;
+    return new TextDecoder().decode(bytes);
+  }
+
+  readMetaValue(vtype) {
+    switch (vtype) {
+      case 0: return this.u8();
+      case 1: return this.i8();
+      case 2: return this.u16();
+      case 3: return this.i16();
+      case 4: return this.u32();
+      case 5: return this.i32();
+      case 6: return this.f32();
+      case 7: return !!this.u8();
+      case 8: return this.str();
+      case 9: { // ARRAY
+        const atype = this.u32();
+        const alen  = this.u64();
+        const arr = new Array(alen);
+        for (let i = 0; i < alen; i++) arr[i] = this.readMetaValue(atype);
+        return arr;
+      }
+      case 10: return this.u64();
+      case 11: {
+        const v = this.view.getBigInt64(this.off, true);
+        this.off += 8;
+        return Number(v);
+      }
+      case 12: {
+        const v = this.view.getFloat64(this.off, true);
+        this.off += 8;
+        return v;
+      }
+      default: throw new Error(`Unknown GGUF meta type: ${vtype}`);
+    }
+  }
+
+  parse() {
+    const magic = this.u32();
+    if (magic !== GGUF_MAGIC) throw new Error(`Not a GGUF file (magic: 0x${magic.toString(16)})`);
+
+    const version = this.u32();
+    if (version < 2 || version > 3) throw new Error(`Unsupported GGUF version: ${version}`);
+
+    const tensorCount = this.u64();
+    const metaCount   = this.u64();
+
+    // Read metadata
+    const meta = {};
+    for (let i = 0; i < metaCount; i++) {
+      const key   = this.str();
+      const vtype = this.u32();
+      const value = this.readMetaValue(vtype);
+      meta[key] = value;
+    }
+
+    // Read tensor infos
+    const tensors = {};
+    const alignment = meta['general.alignment'] || 32;
+
+    for (let i = 0; i < tensorCount; i++) {
+      const name  = this.str();
+      const ndim  = this.u32();
+      const shape = [];
+      for (let d = 0; d < ndim; d++) shape.push(this.u64());
+      const dtype  = this.u32();
+      const offset = this.u64();
+      tensors[name] = { name, shape, dtype, offset, ndim };
+    }
+
+    // Tensor data starts after alignment padding
+    const dataStart = Math.ceil(this.off / alignment) * alignment;
+
+    // Resolve absolute offsets and create typed views
+    for (const name in tensors) {
+      const t = tensors[name];
+      t.absOffset = dataStart + t.offset;
+      const nelems = t.shape.reduce((a, b) => a * b, 1);
+      const binfo = GGML_BLOCK[t.dtype];
+      if (binfo) {
+        const [blockQuants, blockBytes] = binfo;
+        const nblocks = Math.ceil(nelems / blockQuants);
+        t.byteLength = nblocks * blockBytes;
+      } else {
+        t.byteLength = 0; // unsupported type
+      }
+    }
+
+    return { meta, tensors, dataStart, buffer: this.buf };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// §2  DEQUANTIZATION
+// ─────────────────────────────────────────────────────────────────
+
+function f16ToF32(u16) {
+  const sign = (u16 >> 15) & 1;
+  const exp  = (u16 >> 10) & 0x1f;
+  const frac = u16 & 0x3ff;
+  if (exp === 0) {
+    // subnormal or zero
+    return (sign ? -1 : 1) * Math.pow(2, -14) * (frac / 1024);
+  } else if (exp === 31) {
+    return frac === 0 ? (sign ? -Infinity : Infinity) : NaN;
+  }
+  return (sign ? -1 : 1) * Math.pow(2, exp - 15) * (1 + frac / 1024);
+}
+
+function dequantF16(buf, offset, nelems) {
+  const out = new Float32Array(nelems);
+  const u16 = new Uint16Array(buf, offset, nelems);
+  for (let i = 0; i < nelems; i++) out[i] = f16ToF32(u16[i]);
+  return out;
+}
+
+function dequantF32(buf, offset, nelems) {
+  return new Float32Array(buf, offset, nelems);
+}
+
+function dequantQ8_0(buf, offset, nelems) {
+  const out = new Float32Array(nelems);
+  const blockSize = 32;
+  const blockBytes = 34; // 2 (f16 delta) + 32 (int8 quants)
+  const nblocks = Math.ceil(nelems / blockSize);
+  const data = new Uint8Array(buf, offset, nblocks * blockBytes);
+  const dataView = new DataView(buf, offset, nblocks * blockBytes);
+
+  for (let b = 0; b < nblocks; b++) {
+    const boff = b * blockBytes;
+    const delta = f16ToF32(dataView.getUint16(boff, true));
+    for (let i = 0; i < blockSize; i++) {
+      const idx = b * blockSize + i;
+      if (idx >= nelems) break;
+      const q = dataView.getInt8(boff + 2 + i);
+      out[idx] = q * delta;
+    }
+  }
+  return out;
+}
+
+function dequantQ4_0(buf, offset, nelems) {
+  const out = new Float32Array(nelems);
+  const blockSize = 32;
+  const blockBytes = 18; // 2 (f16 delta) + 16 bytes (32 nibbles)
+  const nblocks = Math.ceil(nelems / blockSize);
+  const dataView = new DataView(buf, offset, nblocks * blockBytes);
+
+  for (let b = 0; b < nblocks; b++) {
+    const boff = b * blockBytes;
+    const delta = f16ToF32(dataView.getUint16(boff, true));
+    for (let i = 0; i < blockSize; i++) {
+      const idx = b * blockSize + i;
+      if (idx >= nelems) break;
+      const byteIdx = boff + 2 + Math.floor(i / 2);
+      const byte = dataView.getUint8(byteIdx);
+      const nibble = (i % 2 === 0) ? (byte & 0x0f) : ((byte >> 4) & 0x0f);
+      out[idx] = (nibble - 8) * delta;
+    }
+  }
+  return out;
+}
+
+function dequantTensor(buf, tensor) {
+  const nelems = tensor.shape.reduce((a, b) => a * b, 1);
+  switch (tensor.dtype) {
+    case GGML_TYPES.F32:  return dequantF32(buf, tensor.absOffset, nelems);
+    case GGML_TYPES.F16:  return dequantF16(buf, tensor.absOffset, nelems);
+    case GGML_TYPES.Q8_0: return dequantQ8_0(buf, tensor.absOffset, nelems);
+    case GGML_TYPES.Q4_0: return dequantQ4_0(buf, tensor.absOffset, nelems);
+    default: throw new Error(`Unsupported quant type: ${tensor.dtype} for ${tensor.name}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// §3  BPE TOKENIZER (from GGUF metadata)
+// ─────────────────────────────────────────────────────────────────
+
+class BPETokenizer {
+  constructor(meta) {
+    this.tokens = meta['tokenizer.ggml.tokens'] || [];
+    this.scores = meta['tokenizer.ggml.scores'] || [];
+    this.merges = meta['tokenizer.ggml.merges'] || [];
+    this.tokenTypes = meta['tokenizer.ggml.token_type'] || [];
+    this.bosId = meta['tokenizer.ggml.bos_token_id'] ?? 1;
+    this.eosId = meta['tokenizer.ggml.eos_token_id'] ?? 2;
+    this.vocabSize = this.tokens.length;
+
+    // Build token → id map
+    this.tok2id = new Map();
+    for (let i = 0; i < this.tokens.length; i++) {
+      this.tok2id.set(this.tokens[i], i);
+    }
+
+    // Build merge priority map
+    this.mergePriority = new Map();
+    for (let i = 0; i < this.merges.length; i++) {
+      this.mergePriority.set(this.merges[i], i);
+    }
+
+    // Detect tokenizer type: SentencePiece uses ▁, GPT-2 uses Ġ
+    this.isSentencePiece = this.tokens.some(t => t.includes('▁'));
+  }
+
+  // Encode text to token ids
+  encode(text, addBos = true) {
+    const ids = addBos ? [this.bosId] : [];
+
+    if (this.isSentencePiece) {
+      // SentencePiece: prepend space, replace spaces with ▁
+      text = ' ' + text;
+      text = text.replace(/ /g, '▁');
+    }
+
+    // Convert text to initial character-level tokens
+    let symbols = [];
+    // Try to match known byte tokens for each UTF-8 byte
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(text);
+
+    // First try: word-level greedy matching
+    let pos = 0;
+    while (pos < text.length) {
+      // Try longest match first
+      let bestLen = 0, bestId = -1;
+      const maxLen = Math.min(32, text.length - pos);
+      for (let len = maxLen; len >= 1; len--) {
+        const sub = text.substring(pos, pos + len);
+        const id = this.tok2id.get(sub);
+        if (id !== undefined) {
+          bestLen = len;
+          bestId = id;
+          break;
+        }
+      }
+      if (bestId >= 0) {
+        symbols.push(bestId);
+        pos += bestLen;
+      } else {
+        // Fallback: try byte-level tokens <0xHH>
+        const charBytes = encoder.encode(text[pos]);
+        for (const b of charBytes) {
+          const hex = `<0x${b.toString(16).toUpperCase().padStart(2, '0')}>`;
+          const id = this.tok2id.get(hex);
+          symbols.push(id !== undefined ? id : 0);
+        }
+        pos++;
+      }
+    }
+
+    // Apply BPE merges
+    if (this.merges.length > 0) {
+      symbols = this._applyMerges(symbols);
+    }
+
+    ids.push(...symbols);
+    return ids;
+  }
+
+  _applyMerges(symbols) {
+    if (symbols.length < 2) return symbols;
+
+    while (true) {
+      let bestPriority = Infinity;
+      let bestIdx = -1;
+
+      // Find the merge with highest priority (lowest index)
+      for (let i = 0; i < symbols.length - 1; i++) {
+        const pair = this.tokens[symbols[i]] + ' ' + this.tokens[symbols[i + 1]];
+        const p = this.mergePriority.get(pair);
+        if (p !== undefined && p < bestPriority) {
+          bestPriority = p;
+          bestIdx = i;
+        }
+      }
+
+      if (bestIdx === -1) break;
+
+      // Merge the pair
+      const merged = this.tokens[symbols[bestIdx]] + this.tokens[symbols[bestIdx + 1]];
+      const mergedId = this.tok2id.get(merged);
+      if (mergedId === undefined) break;
+
+      symbols.splice(bestIdx, 2, mergedId);
+    }
+    return symbols;
+  }
+
+  decode(ids) {
+    let text = '';
+    for (const id of ids) {
+      if (id === this.bosId || id === this.eosId) continue;
+      let tok = this.tokens[id] || '';
+      // Handle byte tokens
+      if (tok.startsWith('<0x') && tok.endsWith('>')) {
+        const byte = parseInt(tok.slice(3, -1), 16);
+        tok = String.fromCharCode(byte);
+      }
+      text += tok;
+    }
+    if (this.isSentencePiece) {
+      text = text.replace(/▁/g, ' ');
+      if (text.startsWith(' ')) text = text.slice(1);
+    }
+    return text;
+  }
+
+  decodeSingle(id) {
+    if (id === this.bosId || id === this.eosId) return '';
+    let tok = this.tokens[id] || '';
+    if (tok.startsWith('<0x') && tok.endsWith('>')) {
+      const byte = parseInt(tok.slice(3, -1), 16);
+      tok = String.fromCharCode(byte);
+    }
+    if (this.isSentencePiece) tok = tok.replace(/▁/g, ' ');
+    return tok;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// §4  LLAMA 3 FORWARD PASS — CPU (Float32Array)
+// ─────────────────────────────────────────────────────────────────
+
+class LlamaModel {
+  constructor(gguf) {
+    this.meta = gguf.meta;
+    this.buf  = gguf.buffer;
+
+    // Detect architecture: Gemma-3 or Llama
+    const arch = this.meta['general.architecture'] || 'llama';
+    this.isGemma = arch.includes('gemma');
+    const prefix = this.isGemma ? 'gemma3' : (this.meta['llama.embedding_length'] ? 'llama' : arch);
+
+    // Extract config — try gemma3.* then llama.* keys
+    const getConf = (key) => {
+      return this.meta[`${prefix}.${key}`] ?? this.meta[`gemma3_text.${key}`] ??
+             this.meta[`gemma3.${key}`] ?? this.meta[`llama.${key}`];
+    };
+
+    this.dim      = getConf('embedding_length') || 640;
+    this.nLayers  = getConf('block_count') || 18;
+    this.nHeads   = getConf('attention.head_count') || 4;
+    this.nKVHeads = getConf('attention.head_count_kv') || this.nHeads;
+    this.nFF      = getConf('feed_forward_length') || this.dim * 4;
+    this.ropeTheta= this.meta[`${prefix}.rope.freq_base`] ?? this.meta['gemma3.rope.freq_base'] ?? 500000;
+    this.ropeThetaSWA = this.meta[`${prefix}.rope.freq_base_swa`] ?? this.meta['gemma3.rope.freq_base_swa'] ?? 10000;
+    this.slidingWindow = getConf('attention.sliding_window') || 512;
+    this.ctxLen   = getConf('context_length') || 2048;
+    this.vocabSize= getConf('vocab_size') ||
+                    this.meta['tokenizer.ggml.tokens']?.length || 32000;
+    this.normEps  = getConf('attention.layer_norm_rms_epsilon') || 1e-6;
+
+    // Gemma-3: head_dim=256 independent of dim/heads
+    if (this.isGemma) {
+      this.headDim = 256;
+    } else {
+      this.headDim = this.dim / this.nHeads;
+    }
+    this.kvDim = this.nKVHeads * this.headDim;
+
+    // Infer vocab size from embedding tensor shape
+    const embShape = gguf.tensors['token_embd.weight']?.shape;
+    if (embShape && embShape.length === 2) {
+      this.vocabSize = (embShape[0] === this.dim) ? embShape[1] : embShape[0];
+    }
+
+    this.tensors = gguf.tensors;
+    this._cache = {};
+
+    // KV cache
+    this.kvCache = [];
+    for (let l = 0; l < this.nLayers; l++) {
+      this.kvCache.push({
+        k: new Float32Array(this.ctxLen * this.kvDim),
+        v: new Float32Array(this.ctxLen * this.kvDim),
+      });
+    }
+    this.seqLen = 0;
+
+    // Precompute RoPE frequencies (two sets for Gemma-3)
+    this._ropeFreqs = this._computeRopeFreqs(this.ropeTheta);
+    if (this.isGemma) {
+      this._ropeFreqsSWA = this._computeRopeFreqs(this.ropeThetaSWA);
+    }
+
+    console.log(`Model: ${arch} dim=${this.dim} layers=${this.nLayers} heads=${this.nHeads} kv=${this.nKVHeads} hd=${this.headDim} ff=${this.nFF} vocab=${this.vocabSize} rope=${this.ropeTheta}${this.isGemma ? '/'+this.ropeThetaSWA+'(swa)' : ''}`);
+  }
+
+  _computeRopeFreqs(theta) {
+    const freqs = new Float32Array(this.headDim / 2);
+    for (let i = 0; i < this.headDim / 2; i++) {
+      freqs[i] = 1.0 / Math.pow(theta, (2 * i) / this.headDim);
+    }
+    return freqs;
+  }
+
+  // Lazy tensor loading + dequantization with caching
+  T(name) {
+    if (this._cache[name]) return this._cache[name];
+    const t = this.tensors[name];
+    if (!t) throw new Error(`Tensor not found: ${name}`);
+    const data = dequantTensor(this.buf, t);
+    this._cache[name] = data;
+    return data;
+  }
+
+  // Evict a cached tensor to free memory
+  evict(name) { delete this._cache[name]; }
+
+  // ── Math ops ──────────────────────────────────────────────────
+
+  rmsNorm(out, x, weight, n) {
+    let ss = 0;
+    for (let i = 0; i < n; i++) ss += x[i] * x[i];
+    ss = 1.0 / Math.sqrt(ss / n + this.normEps);
+    for (let i = 0; i < n; i++) out[i] = x[i] * ss * weight[i];
+  }
+
+  // out[M] = mat[M×K] × x[K]  (row-major matrix)
+  matmul(out, mat, x, M, K) {
+    for (let i = 0; i < M; i++) {
+      let sum = 0;
+      const rowOff = i * K;
+      for (let j = 0; j < K; j++) sum += mat[rowOff + j] * x[j];
+      out[i] = sum;
+    }
+  }
+
+  // Apply RoPE to Q or K at position pos
+  rope(vec, pos, nHeads, headDim) {
+    const halfDim = headDim / 2;
+    for (let h = 0; h < nHeads; h++) {
+      const off = h * headDim;
+      for (let i = 0; i < halfDim; i++) {
+        const theta = pos * this._ropeFreqs[i];
+        const cos_t = Math.cos(theta);
+        const sin_t = Math.sin(theta);
+        const r0 = vec[off + i];
+        const r1 = vec[off + i + halfDim];
+        vec[off + i]            = r0 * cos_t - r1 * sin_t;
+        vec[off + i + halfDim]  = r0 * sin_t + r1 * cos_t;
+      }
+    }
+  }
+
+  softmax(x, n) {
+    let max = -Infinity;
+    for (let i = 0; i < n; i++) if (x[i] > max) max = x[i];
+    let sum = 0;
+    for (let i = 0; i < n; i++) { x[i] = Math.exp(x[i] - max); sum += x[i]; }
+    for (let i = 0; i < n; i++) x[i] /= sum;
+  }
+
+  silu(x) { return x / (1 + Math.exp(-x)); }
+  gelu(x) { return 0.5 * x * (1 + Math.tanh(0.7978845608 * (x + 0.044715 * x * x * x))); }
+
+  // Apply RoPE with specific frequency set
+  ropeWithFreqs(vec, pos, nHeads, headDim, freqs) {
+    const halfDim = headDim / 2;
+    for (let h = 0; h < nHeads; h++) {
+      const off = h * headDim;
+      for (let i = 0; i < halfDim; i++) {
+        const theta = pos * freqs[i];
+        const cos_t = Math.cos(theta);
+        const sin_t = Math.sin(theta);
+        const r0 = vec[off + i];
+        const r1 = vec[off + i + halfDim];
+        vec[off + i]            = r0 * cos_t - r1 * sin_t;
+        vec[off + i + halfDim]  = r0 * sin_t + r1 * cos_t;
+      }
+    }
+  }
+
+  // ── Forward pass for single token at position pos ────────────
+
+  forward(token, pos) {
+    const D = this.dim;
+    const HD = this.headDim;
+    const NH = this.nHeads;
+    const NKV = this.nKVHeads;
+    const KVD = this.kvDim;
+    const FF = this.nFF;
+    const headRatio = NH / NKV;
+
+    // Token embedding
+    const emb = this.T('token_embd.weight');
+    let x = new Float32Array(D);
+    for (let i = 0; i < D; i++) x[i] = emb[token * D + i];
+
+    // Gemma-3: scale embeddings by sqrt(hidden_dim)
+    if (this.isGemma) {
+      const scale = Math.sqrt(D);
+      for (let i = 0; i < D; i++) x[i] *= scale;
+    }
+
+    // Buffers
+    const qkvDim = NH * HD;
+    const bufDim = Math.max(D, qkvDim);
+    const xn  = new Float32Array(bufDim);
+    const q   = new Float32Array(qkvDim);
+    const k   = new Float32Array(KVD);
+    const v   = new Float32Array(KVD);
+    const att  = new Float32Array(this.ctxLen);
+    const xout = new Float32Array(qkvDim);
+    const hb   = new Float32Array(FF);
+    const hb2  = new Float32Array(FF);
+
+    for (let l = 0; l < this.nLayers; l++) {
+      const prefix = `blk.${l}`;
+
+      // Gemma-3: global layers (l%6==5) use full attention + global RoPE
+      const isGlobal = this.isGemma && (l % 6 === 5);
+      const ropeFreqs = (this.isGemma && !isGlobal) ? this._ropeFreqsSWA : this._ropeFreqs;
+
+      // Attention norm
+      this.rmsNorm(xn, x, this.T(`${prefix}.attn_norm.weight`), D);
+
+      // QKV projections
+      this.matmul(q, this.T(`${prefix}.attn_q.weight`), xn, qkvDim, D);
+      this.matmul(k, this.T(`${prefix}.attn_k.weight`), xn, KVD, D);
+      this.matmul(v, this.T(`${prefix}.attn_v.weight`), xn, KVD, D);
+
+      // Gemma-3: per-head Q/K RMS norm with learned weights
+      if (this.isGemma && this.tensors[`${prefix}.attn_q_norm.weight`]) {
+        const qnW = this.T(`${prefix}.attn_q_norm.weight`);
+        for (let h = 0; h < NH; h++) {
+          let ss = 0;
+          for (let i = 0; i < HD; i++) ss += q[h*HD+i] * q[h*HD+i];
+          ss = 1.0 / Math.sqrt(ss / HD + this.normEps);
+          for (let i = 0; i < HD; i++) q[h*HD+i] = q[h*HD+i] * ss * qnW[i];
+        }
+        const knW = this.T(`${prefix}.attn_k_norm.weight`);
+        for (let h = 0; h < NKV; h++) {
+          let ss = 0;
+          for (let i = 0; i < HD; i++) ss += k[h*HD+i] * k[h*HD+i];
+          ss = 1.0 / Math.sqrt(ss / HD + this.normEps);
+          for (let i = 0; i < HD; i++) k[h*HD+i] = k[h*HD+i] * ss * knW[i];
+        }
+      }
+
+      // RoPE (dual theta for Gemma-3)
+      this.ropeWithFreqs(q, pos, NH, HD, ropeFreqs);
+      this.ropeWithFreqs(k, pos, NKV, HD, ropeFreqs);
+
+      // Store K,V in cache
+      const kc = this.kvCache[l].k;
+      const vc = this.kvCache[l].v;
+      for (let i = 0; i < KVD; i++) {
+        kc[pos * KVD + i] = k[i];
+        vc[pos * KVD + i] = v[i];
+      }
+
+      // Sliding window: local layers only see recent tokens
+      let attnStart = 0;
+      if (this.isGemma && !isGlobal && this.slidingWindow > 0) {
+        attnStart = Math.max(0, pos - this.slidingWindow + 1);
+      }
+
+      // Multi-head attention with GQA
+      xout.fill(0);
+      const scale = 1 / Math.sqrt(HD);
+
+      for (let h = 0; h < NH; h++) {
+        const kvh = Math.floor(h / headRatio);
+        const qoff = h * HD;
+        const attLen = pos - attnStart + 1;
+
+        for (let t = attnStart; t <= pos; t++) {
+          let score = 0;
+          const koff = t * KVD + kvh * HD;
+          for (let i = 0; i < HD; i++) score += q[qoff + i] * kc[koff + i];
+          att[t - attnStart] = score * scale;
+        }
+        this.softmax(att, attLen);
+
+        const ooff = h * HD;
+        for (let t = attnStart; t <= pos; t++) {
+          const a = att[t - attnStart];
+          const voff = t * KVD + kvh * HD;
+          for (let i = 0; i < HD; i++) xout[ooff + i] += a * vc[voff + i];
+        }
+      }
+
+      // Output projection
+      const proj = new Float32Array(D);
+      this.matmul(proj, this.T(`${prefix}.attn_output.weight`), xout, D, qkvDim);
+
+      // Gemma-3: post-attention sandwich norm
+      if (this.isGemma && this.tensors[`${prefix}.post_attention_norm.weight`]) {
+        const tmp = new Float32Array(D);
+        this.rmsNorm(tmp, proj, this.T(`${prefix}.post_attention_norm.weight`), D);
+        for (let i = 0; i < D; i++) proj[i] = tmp[i];
+      }
+
+      // Residual
+      for (let i = 0; i < D; i++) x[i] += proj[i];
+
+      // FFN norm
+      this.rmsNorm(xn, x, this.T(`${prefix}.ffn_norm.weight`), D);
+
+      // FFN: GEGLU for Gemma-3, SwiGLU for Llama
+      this.matmul(hb,  this.T(`${prefix}.ffn_gate.weight`), xn, FF, D);
+      this.matmul(hb2, this.T(`${prefix}.ffn_up.weight`),   xn, FF, D);
+
+      if (this.isGemma) {
+        for (let i = 0; i < FF; i++) hb[i] = this.gelu(hb[i]) * hb2[i];
+      } else {
+        for (let i = 0; i < FF; i++) hb[i] = this.silu(hb[i]) * hb2[i];
+      }
+
+      const ffnOut = new Float32Array(D);
+      this.matmul(ffnOut, this.T(`${prefix}.ffn_down.weight`), hb, D, FF);
+
+      // Gemma-3: post-FFN sandwich norm
+      if (this.isGemma && this.tensors[`${prefix}.post_ffw_norm.weight`]) {
+        const tmp = new Float32Array(D);
+        this.rmsNorm(tmp, ffnOut, this.T(`${prefix}.post_ffw_norm.weight`), D);
+        for (let i = 0; i < D; i++) ffnOut[i] = tmp[i];
+      }
+
+      // Residual
+      for (let i = 0; i < D; i++) x[i] += ffnOut[i];
+    }
+
+    // Final norm
+    this.rmsNorm(xn, x, this.T('output_norm.weight'), D);
+
+    // Output projection → logits
+    const logits = new Float32Array(this.vocabSize);
+    const outW = this.tensors['output.weight'] ? this.T('output.weight') : this.T('token_embd.weight');
+    this.matmul(logits, outW, xn, this.vocabSize, D);
+
+    return logits;
+  }
+
+  resetCache() {
+    for (const kv of this.kvCache) {
+      kv.k.fill(0);
+      kv.v.fill(0);
+    }
+    this.seqLen = 0;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// §5  SAMPLING
+// ─────────────────────────────────────────────────────────────────
+
+function sampleTopP(logits, temp, topP, topK, repPenalty, repWindow) {
+  const n = logits.length;
+
+  // Repetition penalty
+  if (repWindow && repWindow.length > 0) {
+    const seen = new Set(repWindow);
+    for (const id of seen) {
+      if (id < n) logits[id] /= repPenalty;
+    }
+  }
+
+  // Temperature
+  if (temp > 0) {
+    for (let i = 0; i < n; i++) logits[i] /= temp;
+  }
+
+  // Softmax
+  let max = -Infinity;
+  for (let i = 0; i < n; i++) if (logits[i] > max) max = logits[i];
+  const probs = new Float32Array(n);
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    probs[i] = Math.exp(logits[i] - max);
+    sum += probs[i];
+  }
+  for (let i = 0; i < n; i++) probs[i] /= sum;
+
+  // Compute entropy
+  let entropy = 0;
+  for (let i = 0; i < n; i++) {
+    if (probs[i] > 1e-10) entropy -= probs[i] * Math.log2(probs[i]);
+  }
+
+  // Top-K filter
+  const indices = Array.from({length: n}, (_, i) => i);
+  indices.sort((a, b) => probs[b] - probs[a]);
+
+  let cutoff = Math.min(topK, n);
+
+  // Top-P filter
+  let cumP = 0;
+  for (let i = 0; i < cutoff; i++) {
+    cumP += probs[indices[i]];
+    if (cumP >= topP) { cutoff = i + 1; break; }
+  }
+
+  // Sample from filtered distribution
+  const filtered = indices.slice(0, cutoff);
+  let fsum = 0;
+  for (const idx of filtered) fsum += probs[idx];
+  let r = Math.random() * fsum;
+  for (const idx of filtered) {
+    r -= probs[idx];
+    if (r <= 0) return { token: idx, prob: probs[idx], entropy };
+  }
+  return { token: filtered[0], prob: probs[filtered[0]], entropy };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// §6  GENERATION ENGINE
+// ─────────────────────────────────────────────────────────────────
+
+class GenerationEngine {
+  constructor(model, tokenizer) {
+    this.model = model;
+    this.tok = tokenizer;
+    this.running = false;
+    this.temp = 0.8;
+    this.topP = 0.9;
+    this.topK = 50;
+    this.repPenalty = 1.15;
+    this.repWindowSize = 64;
+    this.maxTokens = 256;
+  }
+
+  stop() { this.running = false; }
+
+  async *generate(prompt) {
+    this.running = true;
+    this.model.resetCache();
+
+    // Wrap in chat template if model supports it
+    let wrappedPrompt = prompt;
+    if (this.model.isGemma) {
+      wrappedPrompt = `<start_of_turn>user\n${prompt}<end_of_turn>\n<start_of_turn>model\n`;
+    }
+    const inputIds = this.tok.encode(wrappedPrompt);
+    console.log(`Prompt encoded: ${inputIds.length} tokens`, inputIds.slice(0, 20));
+    const repWindow = [];
+
+    // Prefill: process all prompt tokens, save logits from the last one
+    let pos = 0;
+    let logits = null;
+    for (const tok of inputIds) {
+      if (!this.running) { this.running = false; return; }
+      const t0 = performance.now();
+      logits = this.model.forward(tok, pos);
+      const dt = performance.now() - t0;
+      console.log(`Prefill pos=${pos} tok=${tok} "${this.tok.decodeSingle(tok)}" ${dt.toFixed(0)}ms`);
+      pos++;
+      repWindow.push(tok);
+      yield { type: 'prefill', token: tok, text: this.tok.decodeSingle(tok), pos };
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    if (!logits) { this.running = false; return; }
+
+    // Decode: sample from prefill logits, then autoregressive
+    for (let step = 0; step < this.maxTokens; step++) {
+      if (!this.running) break;
+
+      const t0 = performance.now();
+      if (step > 0) {
+        logits = this.model.forward(repWindow[repWindow.length - 1], pos);
+      }
+      const dt = performance.now() - t0;
+
+      const window = repWindow.slice(-this.repWindowSize);
+      const { token, prob, entropy } = sampleTopP(
+        logits, this.temp, this.topP, this.topK, this.repPenalty, window
+      );
+
+      if (token === this.tok.eosId) {
+        console.log('EOS reached');
+        yield { type: 'eos' };
+        break;
+      }
+      // Gemma end-of-turn token
+      const tokStr = this.tok.tokens[token] || '';
+      if (tokStr === '<end_of_turn>' || tokStr === '<eos>') {
+        console.log('End of turn');
+        yield { type: 'eos' };
+        break;
+      }
+
+      const text = this.tok.decodeSingle(token);
+      if (step > 0) pos++;
+      repWindow.push(token);
+
+      console.log(`Decode step=${step} pos=${pos} tok=${token} "${text}" p=${prob.toFixed(4)} H=${entropy.toFixed(2)} ${dt.toFixed(0)}ms`);
+
+      yield {
+        type: 'token',
+        token, text, prob, entropy,
+        tokPerSec: step === 0 ? 0 : 1000 / dt,
+        msPerTok: dt,
+        pos
+      };
+
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    this.running = false;
+    yield { type: 'max_tokens' };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// §7  UI
+// ─────────────────────────────────────────────────────────────────
+
+const $ = id => document.getElementById(id);
+
+let engine = null;
+let entropyHistory = [];
+
+// ── Drop zone ────────────────────────────────────────────────────
+const dropzone = $('drop-zone');
+const droparea = $('droparea');
+const fileInput = $('file-input');
+const fileBtn = $('file-btn');
+const urlInput = $('url-input');
+const urlBtn = $('url-btn');
+const progressWrap = $('progress-wrap');
+const progressLabel = $('progress-label');
+const progressBarInner = $('progress-bar-inner');
+
+fileBtn.onclick = () => fileInput.click();
+fileInput.onchange = () => { if (fileInput.files[0]) loadFile(fileInput.files[0]); };
+
+droparea.ondragover = e => { e.preventDefault(); droparea.classList.add('dragover'); };
+droparea.ondragleave = () => droparea.classList.remove('dragover');
+droparea.ondrop = e => {
+  e.preventDefault();
+  droparea.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+};
+
+urlBtn.onclick = () => {
+  const url = urlInput.value.trim();
+  if (url) fetchFromURL(url);
+};
+
+// HuggingFace button — fetch leo-plain Q8 from HF
+const hfBtn = document.getElementById('hf-btn');
+if (hfBtn) {
+  hfBtn.onclick = () => {
+    const hfUrl = 'https://huggingface.co/ataeff/g/resolve/main/leo-q8_0.gguf';
+    fetchFromURL(hfUrl);
+  };
+}
+urlInput.onkeydown = e => { if (e.key === 'Enter') urlBtn.click(); };
+
+function showProgress(label, pct) {
+  progressWrap.classList.add('active');
+  progressLabel.textContent = label;
+  progressBarInner.style.width = pct + '%';
+}
+
+async function loadFile(file) {
+  showProgress(`loading ${file.name}...`, 0);
+  const buffer = await file.arrayBuffer();
+  showProgress('parsing gguf...', 50);
+  await initModel(buffer, file.name);
+}
+
+async function fetchFromURL(url) {
+  showProgress('fetching...', 0);
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const total = parseInt(resp.headers.get('content-length') || '0');
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let received = 0;
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      const pct = total ? Math.round(received / total * 100) : 0;
+      showProgress(`fetching... ${(received/1e6).toFixed(1)}MB`, pct);
+    }
+
+    // Combine chunks into single ArrayBuffer
+    const buf = new Uint8Array(received);
+    let offset = 0;
+    for (const chunk of chunks) { buf.set(chunk, offset); offset += chunk.length; }
+    showProgress('parsing gguf...', 100);
+    await initModel(buf.buffer, url.split('/').pop());
+  } catch (e) {
+    progressLabel.textContent = `error: ${e.message}`;
+  }
+}
+
+async function initModel(buffer, filename) {
+  try {
+    showProgress('parsing gguf header...', 30);
+    await new Promise(r => setTimeout(r, 10));
+
+    const reader = new GGUFReader(buffer);
+    const gguf = reader.parse();
+
+    showProgress('building model...', 60);
+    await new Promise(r => setTimeout(r, 10));
+
+    const tokenizer = new BPETokenizer(gguf.meta);
+    const model = new LlamaModel(gguf);
+    engine = new GenerationEngine(model, tokenizer);
+
+    // Update UI
+    const nParams = Math.round(
+      Object.values(gguf.tensors).reduce((s, t) =>
+        s + t.shape.reduce((a, b) => a * b, 1), 0
+      ) / 1e6
+    );
+
+    const dtype = Object.values(gguf.tensors)[0]?.dtype;
+    const dtypeName = Object.entries(GGML_TYPES).find(([k,v]) => v === dtype)?.[0] || '?';
+
+    $('model-info').textContent =
+      `${model.nLayers}L · ${model.dim}D · ${model.nHeads}H · ${nParams}M · ${dtypeName} · ${filename}`;
+
+    showProgress('ready', 100);
+    console.log('Model ready, transitioning UI...');
+    await new Promise(r => setTimeout(r, 300));
+
+    // Transition to app
+    dropzone.style.display = 'none';
+    $('app').classList.add('active');
+    $('prompt-input').focus();
+    console.log('UI transitioned to app. Type a prompt and press Enter.');
+
+  } catch (e) {
+    progressLabel.textContent = `error: ${e.message}`;
+    console.error('initModel error:', e);
+  }
+}
+
+// ── Generation UI ────────────────────────────────────────────────
+const output = $('output');
+const promptInput = $('prompt-input');
+const sendBtn = $('send-btn');
+const stopBtn = $('stop-btn');
+const hudEl = $('hud');
+
+sendBtn.onclick = startGeneration;
+promptInput.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) startGeneration(); };
+stopBtn.onclick = () => { if (engine) engine.stop(); };
+
+async function startGeneration() {
+  if (!engine || engine.running) return;
+  const prompt = promptInput.value.trim();
+  if (!prompt) return;
+
+  console.log(`Starting generation: "${prompt}"`);
+
+  promptInput.value = '';
+  promptInput.disabled = true;
+  sendBtn.style.display = 'none';
+  stopBtn.style.display = 'inline-block';
+
+  // Clear previous output
+  output.innerHTML = '';
+  entropyHistory = [];
+
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  output.appendChild(cursor);
+
+  let totalToks = 0;
+  let totalMs = 0;
+  let generating = false;
+
+  try {
+    for await (const ev of engine.generate(prompt)) {
+      if (ev.type === 'prefill') {
+        const span = document.createElement('span');
+        span.className = 'tok prompt-tok';
+        span.textContent = ev.text;
+        output.insertBefore(span, cursor);
+      }
+      else if (ev.type === 'token') {
+        if (!generating) {
+          generating = true;
+        }
+
+        const span = document.createElement('span');
+        span.className = 'tok new-tok';
+
+        // Probability → visual weight
+        const pNorm = Math.min(1, ev.prob * engine.model.vocabSize * 0.5);
+        if (pNorm > 0.7) {
+          span.style.fontWeight = '700';
+        } else if (pNorm > 0.3) {
+          span.style.fontWeight = '500';
+        } else {
+          span.style.opacity = String(0.5 + pNorm * 0.7);
+        }
+
+        span.textContent = ev.text;
+        span.title = `p=${ev.prob.toFixed(4)} H=${ev.entropy.toFixed(2)} ${ev.msPerTok.toFixed(0)}ms`;
+        output.insertBefore(span, cursor);
+
+        totalToks++;
+        totalMs += ev.msPerTok;
+        entropyHistory.push(ev.entropy);
+
+        updateHUD(ev, totalToks, totalMs);
+        drawEntropyRibbon();
+
+        // Auto-scroll
+        const area = $('output-area');
+        area.scrollTop = area.scrollHeight;
+      }
+      else if (ev.type === 'eos' || ev.type === 'max_tokens') {
+        break;
+      }
+    }
+  } catch (e) {
+    console.error('Generation error:', e);
+    const errSpan = document.createElement('span');
+    errSpan.style.color = 'var(--accent)';
+    errSpan.style.fontFamily = 'var(--mono)';
+    errSpan.style.fontSize = '10px';
+    errSpan.textContent = `\n[error: ${e.message}]`;
+    output.appendChild(errSpan);
+  }
+
+  cursor.remove();
+  promptInput.disabled = false;
+  sendBtn.style.display = 'inline-block';
+  stopBtn.style.display = 'none';
+  promptInput.focus();
+}
+
+function updateHUD(ev, totalToks, totalMs) {
+  const avgTokS = totalToks > 0 ? (1000 * totalToks / totalMs) : 0;
+  hudEl.innerHTML = [
+    `tok/s  <span class="hi">${ev.tokPerSec.toFixed(1)}</span>  avg <span class="val">${avgTokS.toFixed(1)}</span>`,
+    `entropy <span class="hi">${ev.entropy.toFixed(3)}</span>`,
+    `tokens  <span class="val">${totalToks}</span> / ${engine.maxTokens}`,
+    `pos     <span class="val">${ev.pos}</span>`,
+  ].join('\n');
+}
+
+function drawEntropyRibbon() {
+  const canvas = $('entropy-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.parentElement.clientWidth;
+  canvas.width = W;
+  canvas.height = 2;
+  ctx.clearRect(0, 0, W, 2);
+
+  if (entropyHistory.length < 2) return;
+  const maxH = Math.log2(engine.model.vocabSize);
+
+  for (let i = 0; i < entropyHistory.length; i++) {
+    const x = (i / entropyHistory.length) * W;
+    const h = entropyHistory[i] / maxH;
+    // Low entropy = cool dark, high entropy = warm red
+    const r = Math.round(40 + h * 160);
+    const g = Math.round(40 + (1 - h) * 60);
+    const b = Math.round(30 + (1 - h) * 40);
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(Math.floor(x), 0, Math.max(1, W / entropyHistory.length), 2);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// §8  WEBGPU BACKEND (optional acceleration)
+// ─────────────────────────────────────────────────────────────────
+
+// WebGPU matmul shader — to be connected when WebGPU is available.
+// For now, the CPU path in LlamaModel handles everything.
+// This section is structured for easy future activation.
+
+async function initWebGPU() {
+  if (!navigator.gpu) {
+    console.log('WebGPU not available, using CPU backend');
+    return null;
+  }
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return null;
+    const device = await adapter.requestDevice({
+      requiredLimits: {
+        maxStorageBufferBindingSize: 256 * 1024 * 1024,
+        maxBufferSize: 256 * 1024 * 1024,
+      }
+    });
+    console.log('WebGPU device acquired');
+    return device;
+  } catch (e) {
+    console.log('WebGPU init failed:', e.message);
+    return null;
+  }
+}
+
+// Matmul compute shader: out[M] = mat[M×K] × vec[K]
+const MATMUL_WGSL = `
+@group(0) @binding(0) var<storage, read> mat: array<f32>;
+@group(0) @binding(1) var<storage, read> vec: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out: array<f32>;
+
+struct Params { M: u32, K: u32 }
+@group(0) @binding(3) var<uniform> params: Params;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let row = gid.x;
+  if (row >= params.M) { return; }
+  var sum: f32 = 0.0;
+  let base = row * params.K;
+  for (var j: u32 = 0u; j < params.K; j = j + 1u) {
+    sum = sum + mat[base + j] * vec[j];
+  }
+  out[row] = sum;
+}
+`;
+
+// ─────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────
+
+// WebGPU matmul accelerator
+let gpuDevice = null;
+let gpuMatmulPipeline = null;
+
+async function setupGPUMatmul(device) {
+  const module = device.createShaderModule({ code: MATMUL_WGSL });
+  gpuMatmulPipeline = device.createComputePipeline({
+    layout: 'auto',
+    compute: { module, entryPoint: 'main' }
+  });
+  return true;
+}
+
+async function gpuMatmul(out, mat, x, M, K) {
+  if (!gpuDevice || !gpuMatmulPipeline) return false;
+  try {
+    const matBuf = gpuDevice.createBuffer({ size: M*K*4, usage: GPUBufferUsage.STORAGE, mappedAtCreation: true });
+    new Float32Array(matBuf.getMappedRange()).set(mat.subarray(0, M*K));
+    matBuf.unmap();
+    const xBuf = gpuDevice.createBuffer({ size: K*4, usage: GPUBufferUsage.STORAGE, mappedAtCreation: true });
+    new Float32Array(xBuf.getMappedRange()).set(x.subarray(0, K));
+    xBuf.unmap();
+    const outBuf = gpuDevice.createBuffer({ size: M*4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    const paramBuf = gpuDevice.createBuffer({ size: 8, usage: GPUBufferUsage.UNIFORM, mappedAtCreation: true });
+    new Uint32Array(paramBuf.getMappedRange()).set([M, K]);
+    paramBuf.unmap();
+    const readBuf = gpuDevice.createBuffer({ size: M*4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+
+    const bg = gpuDevice.createBindGroup({
+      layout: gpuMatmulPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: matBuf } },
+        { binding: 1, resource: { buffer: xBuf } },
+        { binding: 2, resource: { buffer: outBuf } },
+        { binding: 3, resource: { buffer: paramBuf } },
+      ]
+    });
+    const cmd = gpuDevice.createCommandEncoder();
+    const pass = cmd.beginComputePass();
+    pass.setPipeline(gpuMatmulPipeline);
+    pass.setBindGroup(0, bg);
+    pass.dispatchWorkgroups(Math.ceil(M / 64));
+    pass.end();
+    cmd.copyBufferToBuffer(outBuf, 0, readBuf, 0, M*4);
+    gpuDevice.queue.submit([cmd.finish()]);
+    await readBuf.mapAsync(GPUMapMode.READ);
+    out.set(new Float32Array(readBuf.getMappedRange()));
+    readBuf.unmap();
+    matBuf.destroy(); xBuf.destroy(); outBuf.destroy(); paramBuf.destroy(); readBuf.destroy();
+    return true;
+  } catch(e) {
+    console.warn('GPU matmul failed, falling back to CPU:', e.message);
+    return false;
+  }
+}
+
+// Try WebGPU in background
+initWebGPU().then(async device => {
+  if (device) {
+    gpuDevice = device;
+    await setupGPUMatmul(device);
+    console.log('WebGPU ready — GPU matmul active');
+    // Patch model matmul to use GPU for large operations
+    const origMatmul = LlamaModel.prototype.matmul;
+    LlamaModel.prototype.matmul = async function(out, mat, x, M, K) {
+      // Use GPU only for large matmuls (vocab projection)
+      if (M > 10000 && gpuDevice) {
+        const ok = await gpuMatmul(out, mat, x, M, K);
+        if (ok) return;
+      }
+      origMatmul.call(this, out, mat, x, M, K);
+    };
+  }
 });
 
-setStatus('Load weights to begin');
 </script>
 </body>
 </html>
