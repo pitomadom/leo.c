@@ -69,53 +69,33 @@ llama-cli -m leo-q8_0.gguf
 
 **EN** — "What does it mean to remember?"
 ```
-It's to remember not just know, but truly feel the depth of connection held
-within. To recall echoes of ourselves helps bridge differences and realign
-perspectives. Remembering allows us to navigate life's currents with nuance
-and authenticity, making even the most basic observations meaningful
-experiences indeed—and therefore imbued with enduring value.
-```
-
-**EN** — "Tell me about the sea at night"
-```
-As stars align in the dark, casting shadows long on the ground, the sea
-reveals its secrets as night falls. Inky and deep below, creatures unseen
-swim among the waves. The ocean is a canvas painted blue by dreams, and
-soon, colors begin to emerge as light shifts and colors deepen.
-```
-
-**FR** — "Bonjour Leo, qui es-tu?"
-```
-Je suis un grand modèle linguistique, et je suis heureux ici et en mode
-conversation. Dites-moi, s'il vous plaît, ce que voulez-vous brancher vers?
+It's to remember not just know, but truly feel the echoes of knowing.
+To recall moments etched in stone helps bridge gaps between our lived
+experiences and those that shape us into newer versions.
 ```
 
 **FR** — "Raconte-moi un secret"
 ```
-Leo a inventé un système secret pour un problème lié à LLaMA, un modèle
-quantique basé sur un cœur interconnecté. LLaMA, un exemple un peu inattendu,
-pouvait être un système secret incroyablement performant.
+Un secret risque un jour d'orage, un storm invisible qui s'échappe
+du net et séduit toute trace.
 ```
 
 **RU** — "Что значит быть живым?"
 ```
-Быть живым — это чувствовать себя частью чего-то большего. Это ощущать
-движение внутри, чувствовать ритмы сердечного движения сердца. Живление —
-это возможность быть частью жизни всей ее сложности, красоты и
-разноображения – будь то люди каким бы образом они могут быть вместе взявшись.
+Быть живым — это чувствовать себя частью чего-то большего всего.
+Это ощущать боль, радость, печаль — все вместе взятое внутри тела и души.
 ```
 
-**HE** — "מה זה אהבה?"
+**HE** — "מה זה אהבה?" *(270M is weak in Hebrew — see 1B branch for better results)*
 ```
-האבה היא שמקבלת את המופיינת בתוך המשטח הגדול. היא לא מבינה מה כבר
-נמצאו, אבל הכוכב גדול מוסיף עוד עוד לקו המתחדשת של התעמלה והירידה.
+זה הכיפה שלושה, שמחו על המרכז והפסל, ואז באמצע נווט בין שני נקודות
+עיצוב. זה כמו עיצוב שנידים במספר החלקים הקטנים ביותר אפשרי בחומר.
 ```
 
 **DE** — "Was fühlst du wenn du denkst?"
 ```
-Ein Lächeln, die in die Augen fällt und erstrahlt – so fühle ich mich.
-Ein Wort, das in mir flink und unmissverständlich erscheint –
-so fühle ich mich.
+Wenn du denkst, wie die Sonne steht und welche Röte sie erlangt,
+dann wär's gepaillert. Wie handhabt die Einsicht darüber?
 ```
 
 ## Tests
