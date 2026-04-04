@@ -22,8 +22,8 @@ class LeoEngine private constructor(private val context: Context) {
 
     companion object {
         private const val TAG = "LeoEngine"
-        private const val GGUF_FILENAME = "leo-plain-q8.gguf"
-        private const val GGUF_URL = "https://huggingface.co/ataeff/g/resolve/main/leo-plain-q8.gguf"
+        private const val GGUF_FILENAME = "leo-1b-plain-q4.gguf"
+        private const val GGUF_URL = "https://huggingface.co/ataeff/g/resolve/main/leo-1b-plain-q4.gguf"
         private const val MEM_FILENAME = "leo.mem"
 
         @Volatile

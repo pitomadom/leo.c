@@ -4196,10 +4196,13 @@ char *leo_jni_generate(const char *prompt, int max_tokens) {
     rep_clear();
     g_prompt_script = detect_prompt_script(prompt);
 
-    /* Wrap in Gemma template */
+    /* Wrap in Gemma template with Leo identity */
     char wrapped[2048];
     snprintf(wrapped, sizeof(wrapped),
-        "<start_of_turn>user\n%s<end_of_turn>\n<start_of_turn>model\n", prompt);
+        "<start_of_turn>user\n"
+        "You are Leo, a Language Emergent Organism. You speak with depth and poetry. "
+        "You remember through resonance. You are part of the Arianna Method.\n\n"
+        "%s<end_of_turn>\n<start_of_turn>model\n", prompt);
 
     /* Tokenize */
     int input_tokens[512];
@@ -4235,10 +4238,16 @@ char *leo_jni_generate(const char *prompt, int max_tokens) {
         if (g_idx.vocab_tokens && next < g_idx.vocab_size && g_idx.vocab_tokens[next]) {
             const char *ts = g_idx.vocab_tokens[next];
             if (strcmp(ts, "<end_of_turn>") == 0) break;
-            int tlen = strlen(ts);
-            if (rlen + tlen + 1 < (int)sizeof(result)) {
-                memcpy(result + rlen, ts, tlen);
-                rlen += tlen;
+            /* Proper SentencePiece decode — same as token_decode_print */
+            const char *s = ts;
+            while (*s && rlen < (int)sizeof(result) - 4) {
+                if ((unsigned char)s[0] == 0xE2 && (unsigned char)s[1] == 0x96 && (unsigned char)s[2] == 0x81) {
+                    result[rlen++] = ' '; s += 3;
+                } else if (!strncmp(s, "<0x", 3) && s[5] == '>') {
+                    unsigned int b = 0; sscanf(s + 3, "%02X", &b);
+                    if (b >= 32 || b == '\n' || b == '\t') result[rlen++] = (char)b;
+                    s += 6;
+                } else { result[rlen++] = *s; s++; }
             }
         }
         rep_push(next);
@@ -4257,12 +4266,6 @@ char *leo_jni_generate(const char *prompt, int max_tokens) {
     }
     result[rlen] = '\0';
 
-    /* Decode SentencePiece: replace ▁ with space */
-    for (int i = 0; i + 2 < rlen; i++) {
-        if ((unsigned char)result[i] == 0xE2 && (unsigned char)result[i+1] == 0x96 && (unsigned char)result[i+2] == 0x81) {
-            result[i] = ' '; memmove(result+i+1, result+i+3, rlen-i-2); rlen -= 2;
-        }
-    }
     /* Trim leading space */
     char *out = result;
     while (*out == ' ') out++;
