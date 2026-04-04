@@ -115,7 +115,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════════
  * RNG — xorshift64*. the field doesn't care which PRNG shapes it.
  * ═══════════════════════════════════════════════════════════════════════════════ */
-static uint64_t rng_state = 42;
+static uint64_t rng_state = 42; /* seeded from time() in main/jni_init */
 static uint64_t rng_next(void) { rng_state ^= rng_state<<13; rng_state ^= rng_state>>7; rng_state ^= rng_state<<17; return rng_state; }
 static float rand_uniform(void) { return (float)(rng_next()&0x7FFFFFFF)/(float)0x7FFFFFFF; }
 static float rand_normal(void) { float u1=rand_uniform(),u2=rand_uniform(); if(u1<1e-10f)u1=1e-10f; return sqrtf(-2.0f*logf(u1))*cosf(6.2831853f*u2); }
@@ -4174,6 +4174,7 @@ int leo_jni_init(const char *gguf_path, const char *mem_path) {
 
     /* Allocate inference state */
     g_is = alloc_infer(&g_idx, g_jni_max_seq);
+    rng_state = (uint64_t)time(NULL) ^ 0xDEADBEEF;
     g_jni_loaded = 1;
     return 1;
 }
@@ -4310,6 +4311,7 @@ void leo_jni_save(void) {
 #ifndef LEO_JNI
 int main(int argc, char **argv) {
     setbuf(stdout, NULL);
+    rng_state = (uint64_t)time(NULL) ^ ((uint64_t)getpid() << 16); /* seed RNG */
     printf("\n  doe.c — Democracy of Experts\n");
     printf("  θ = ε + γ + αδ — the parliament awakens.\n\n");
 
