@@ -3570,7 +3570,12 @@ static void neshama_start(Neshama *n, GGUFIndex *ps, InferState *is) {
 
 static void neshama_stop(Neshama *n) {
     n->running = 0;
-    usleep(100000);  /* let threads exit */
+    /* Wait long enough for all threads to see running=0 and exit.
+       Longest sleep is 10s (dream check), but threads check running first. */
+    usleep(500000);  /* 500ms — all threads have <10s sleep intervals */
+    /* Double-check: lock/unlock to ensure no thread holds it */
+    pthread_mutex_lock(&n->field_lock);
+    pthread_mutex_unlock(&n->field_lock);
     pthread_mutex_destroy(&n->field_lock);
     printf("[neshama] threads dissolved\n");
 }
@@ -3690,7 +3695,9 @@ static void chat(GGUFIndex *ps) {
         int pos = 0;
         for (int i = 0; i < n_input && pos < max_seq - 1; i++, pos++) {
             doe_forward(ps, &is, input_tokens[i], pos);
-            dario_ingest(input_tokens[i]); /* feed user tokens into Dario field */
+            pthread_mutex_lock(&NESH.field_lock);
+            dario_ingest(input_tokens[i]);
+            pthread_mutex_unlock(&NESH.field_lock);
         }
 
         int prev = input_tokens[n_input - 1];
@@ -3700,6 +3707,8 @@ static void chat(GGUFIndex *ps) {
         for (int i = 0; i < 200 && pos < max_seq; i++, pos++) {
             float *lg = doe_forward(ps, &is, prev, pos);
 
+            pthread_mutex_lock(&NESH.field_lock);
+
             /* Field modulation on logits — Dario Equation */
             field_step(1.0f);
             apply_field_to_logits(lg, ps->host_vocab);
@@ -3708,9 +3717,11 @@ static void chat(GGUFIndex *ps) {
             if (ZK.loaded)
                 zk_inject(&ZK, lg, ps->host_vocab, is.x, ps->host_dim);
 
-            /* Script filter: suppress Arabic in Hebrew, Korean in German, etc. */
+            /* Script filter */
             apply_script_filter(lg, ps->host_vocab, g_prompt_script,
                                 ps->vocab_tokens, ps->vocab_size);
+
+            pthread_mutex_unlock(&NESH.field_lock);
 
             int next = sample(lg, ps->host_vocab, F.effective_temp, 40);
 
@@ -3727,14 +3738,13 @@ static void chat(GGUFIndex *ps) {
 
             /* Prophecy debt — retroactive conscience */
             float pd = compute_prophecy_debt(lg, next, ps->host_vocab);
+
+            pthread_mutex_lock(&NESH.field_lock);
             F.debt += pd;
             debt_sum += pd; debt_count++;
-
-            /* Track for repetition penalty */
             rep_push(next);
-
-            /* Dario field: ingest generated token (co-occurrence + prophecy + destiny) */
             dario_ingest(next);
+            pthread_mutex_unlock(&NESH.field_lock);
 
             /* NOTORCH Hebbian update — debt drives learning */
             float learn_signal = pd > 0.3f ? -pd : (1.0f - pd) * 0.1f;

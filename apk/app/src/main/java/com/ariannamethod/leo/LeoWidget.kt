@@ -113,9 +113,11 @@ class LeoWidget : AppWidgetProvider() {
 
     private fun cancelAlarms(context: Context) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        for (action in listOf(ACTION_UPDATE, ACTION_DREAM)) {
+        // Update uses request code 0, Dream uses request code 1
+        val codes = mapOf(ACTION_UPDATE to 0, ACTION_DREAM to 1)
+        for ((action, code) in codes) {
             val intent = Intent(context, LeoWidget::class.java).apply { this.action = action }
-            am.cancel(PendingIntent.getBroadcast(context, 0, intent,
+            am.cancel(PendingIntent.getBroadcast(context, code, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
         }
     }
