@@ -1,0 +1,100 @@
+name: Leo Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-c:
+    name: C inference (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build leo.c
+        run: cc leo.c -O3 -lm -lpthread -o leo
+
+      - name: Build leo.c (JNI mode)
+        run: cc leo.c -O2 -lm -lpthread -DLEO_JNI -c -o leo_jni.o
+
+      - name: Build tests
+        run: cc leotests/test_leo.c -O2 -lm -o leotests/test_leo
+
+      - name: Run tests
+        run: ./leotests/test_leo
+
+  build-c-macos:
+    name: C inference (macOS + Accelerate)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build leo.c with Apple Accelerate
+        run: cc leo.c -O3 -lm -lpthread -DUSE_BLAS -DACCELERATE -framework Accelerate -o leo
+
+      - name: Build and run tests
+        run: |
+          cc leotests/test_leo.c -O2 -lm -o leotests/test_leo
+          ./leotests/test_leo
+
+  validate-html:
+    name: Validate HTML inference
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check JS syntax
+        run: |
+          sed -n '/<script>/,/<\/script>/p' leo.html | sed '1d;$d' > /tmp/leo_js.js
+          node --check /tmp/leo_js.js
+
+      - name: Check brace balance
+        run: |
+          python3 -c "
+          with open('leo.html') as f: html = f.read()
+          js = html[html.index('<script>')+8:html.rindex('</script>')]
+          o, c = js.count('{'), js.count('}')
+          print(f'Braces: {o} open, {c} close')
+          assert o == c, f'MISMATCH by {o-c}'
+          print('OK')
+          "
+
+  build-apk:
+    name: Android APK (beta)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: latest
+
+      - name: Install NDK
+        run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
+
+      - name: Build debug APK
+        working-directory: apk
+        run: |
+          gradle wrapper --gradle-version 8.4
+          ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leo-beta.apk
+          path: apk/app/build/outputs/apk/debug/*.apk

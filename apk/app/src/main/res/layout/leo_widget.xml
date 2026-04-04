@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D1117"
+    android:padding="14dp">
+
+    <TextView
+        android:id="@+id/leo_display"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fontFamily="serif"
+        android:lineSpacingMultiplier="1.35"
+        android:text="Leo awakens..."
+        android:textColor="#E6EDF3"
+        android:textSize="14sp"
+        android:gravity="top|start" />
+
+</FrameLayout>

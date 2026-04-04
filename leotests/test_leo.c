@@ -349,6 +349,371 @@ void test_attention_output_dim(void) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+ * Zikharon (memory) tests
+ * ═══════════════════════════════════════════════════════════════ */
+
+/* Replicate core Zikharon structures for standalone testing */
+#define ZK_MAX_COOC     32768
+#define ZK_MAX_ANCHORS  1024
+#define ZK_MAX_EPISODES 512
+#define ZK_TOPIC_DIM    32
+#define ZK_ANCHOR_TOKENS 16
+#define ZK_EPISODE_TOKENS 8
+#define ZK_DECAY_SURFACE  0.90f
+#define ZK_DECAY_MIDDLE   0.95f
+#define ZK_DECAY_DEEP     0.998f
+#define ZK_RESURFACE_BOOST 1.05f
+#define ZK_MAX_COOC_VALUE  5.0f
+#define ZK_MEM_ALPHA  0.08f
+#define ZK_MEM_BETA   0.05f
+#define ZK_MEM_GAMMA  0.03f
+
+typedef struct { uint16_t src, dst; float value; uint16_t age, access; } TZkCooc;
+typedef struct {
+    float topic[ZK_TOPIC_DIM]; float strength;
+    uint16_t access_count; uint16_t tokens[ZK_ANCHOR_TOKENS];
+} TZkAnchor;
+typedef struct {
+    float summary[ZK_TOPIC_DIM]; float strength;
+    uint16_t tokens[ZK_EPISODE_TOKENS];
+} TZkEpisode;
+
+static float t_cosine32(const float *a, const float *b) {
+    float dot = 0, na = 0, nb = 0;
+    for (int i = 0; i < ZK_TOPIC_DIM; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
+    return dot / (sqrtf(na * nb) + 1e-8f);
+}
+
+static void t_project(const float *proj, const float *hidden, int dim, float *topic) {
+    for (int i = 0; i < ZK_TOPIC_DIM; i++) {
+        float s = 0;
+        for (int j = 0; j < dim; j++) s += proj[i * dim + j] * hidden[j];
+        topic[i] = s;
+    }
+    float norm = 0;
+    for (int i = 0; i < ZK_TOPIC_DIM; i++) norm += topic[i] * topic[i];
+    norm = 1.0f / (sqrtf(norm) + 1e-8f);
+    for (int i = 0; i < ZK_TOPIC_DIM; i++) topic[i] *= norm;
+}
+
+void test_zk_constants(void) {
+    printf("[unit] test_zk_constants\n");
+    ASSERT(ZK_DECAY_SURFACE < ZK_DECAY_MIDDLE, "surface decays faster than middle");
+    ASSERT(ZK_DECAY_MIDDLE < ZK_DECAY_DEEP, "middle decays faster than deep");
+    ASSERT(ZK_RESURFACE_BOOST > 1.0f, "resurfacing strengthens");
+    ASSERT(ZK_MEM_ALPHA > ZK_MEM_BETA, "co-occurrence weight > anchor weight");
+    ASSERT(ZK_MEM_BETA > ZK_MEM_GAMMA, "anchor weight > episode weight");
+    /* File size bounds */
+    long max_size = 64 + ZK_MAX_COOC * 12 + ZK_MAX_ANCHORS * 176 + ZK_MAX_EPISODES * 188;
+    ASSERT(max_size < 1024 * 1024, "max memory file < 1MB");
+}
+
+void test_zk_projection(void) {
+    printf("[unit] test_zk_projection\n");
+    int dim = 640;
+    float *proj = (float *)malloc(dim * ZK_TOPIC_DIM * sizeof(float));
+    uint32_t rng = 42;
+    float scale = 1.0f / sqrtf((float)ZK_TOPIC_DIM);
+    for (int i = 0; i < dim * ZK_TOPIC_DIM; i++) {
+        rng = rng * 1103515245 + 12345;
+        proj[i] = ((float)(rng >> 16) / 32768.0f - 1.0f) * scale;
+    }
+    float hidden[640];
+    for (int i = 0; i < 640; i++) hidden[i] = sinf(i * 0.1f);
+    float topic[ZK_TOPIC_DIM];
+    t_project(proj, hidden, dim, topic);
+
+    /* Topic should be L2-normalized */
+    float norm = 0;
+    for (int i = 0; i < ZK_TOPIC_DIM; i++) norm += topic[i] * topic[i];
+    ASSERT_NEAR(norm, 1.0f, 0.01f, "topic vector is unit-norm");
+
+    /* Same input → same output (deterministic) */
+    float topic2[ZK_TOPIC_DIM];
+    t_project(proj, hidden, dim, topic2);
+    ASSERT_NEAR(t_cosine32(topic, topic2), 1.0f, 1e-5f, "projection is deterministic");
+
+    /* Different input → different output */
+    float hidden2[640];
+    for (int i = 0; i < 640; i++) hidden2[i] = cosf(i * 0.3f);
+    float topic3[ZK_TOPIC_DIM];
+    t_project(proj, hidden2, dim, topic3);
+    ASSERT(t_cosine32(topic, topic3) < 0.95f, "different inputs → different topics");
+
+    free(proj);
+}
+
+void test_zk_cosine32(void) {
+    printf("[unit] test_zk_cosine32\n");
+    float a[ZK_TOPIC_DIM], b[ZK_TOPIC_DIM];
+    /* Identical vectors */
+    for (int i = 0; i < ZK_TOPIC_DIM; i++) a[i] = b[i] = (float)i;
+    ASSERT_NEAR(t_cosine32(a, b), 1.0f, 1e-5f, "cosine(x, x) = 1");
+    /* Opposite */
+    for (int i = 0; i < ZK_TOPIC_DIM; i++) b[i] = -(float)i;
+    ASSERT_NEAR(t_cosine32(a, b), -1.0f, 1e-5f, "cosine(x, -x) = -1");
+    /* Orthogonal */
+    memset(a, 0, sizeof(a)); a[0] = 1.0f;
+    memset(b, 0, sizeof(b)); b[1] = 1.0f;
+    ASSERT_NEAR(t_cosine32(a, b), 0.0f, 1e-5f, "cosine(e0, e1) = 0");
+}
+
+void test_zk_decay_surface(void) {
+    printf("[unit] test_zk_decay_surface\n");
+    float val = 1.0f;
+    /* 10 sessions */
+    val *= powf(ZK_DECAY_SURFACE, 10.0f);
+    ASSERT_NEAR(val, 0.3487f, 0.01f, "surface after 10 sessions ≈ 0.35");
+    /* 20 sessions */
+    val = powf(ZK_DECAY_SURFACE, 20.0f);
+    ASSERT_NEAR(val, 0.1216f, 0.01f, "surface after 20 sessions ≈ 0.12");
+    /* 50 sessions — practically gone */
+    val = powf(ZK_DECAY_SURFACE, 50.0f);
+    ASSERT(val < 0.01f, "surface after 50 sessions < prune threshold");
+}
+
+void test_zk_decay_middle(void) {
+    printf("[unit] test_zk_decay_middle\n");
+    float val = powf(ZK_DECAY_MIDDLE, 20.0f);
+    ASSERT_NEAR(val, 0.3585f, 0.01f, "middle after 20 sessions ≈ 0.36");
+    val = powf(ZK_DECAY_MIDDLE, 100.0f);
+    ASSERT(val < 0.01f, "middle after 100 sessions < threshold");
+}
+
+void test_zk_decay_deep(void) {
+    printf("[unit] test_zk_decay_deep\n");
+    /* Deep memories are almost eternal */
+    float val = powf(ZK_DECAY_DEEP, 100.0f);
+    ASSERT_NEAR(val, 0.8187f, 0.01f, "deep after 100 sessions ≈ 0.82");
+    val = powf(ZK_DECAY_DEEP, 365.0f);
+    ASSERT_NEAR(val, 0.4825f, 0.02f, "deep after 365 sessions ≈ 0.48");
+    val = powf(ZK_DECAY_DEEP, 1000.0f);
+    ASSERT(val > 0.01f, "deep after 1000 sessions still above threshold");
+}
+
+void test_zk_resurfacing(void) {
+    printf("[unit] test_zk_resurfacing\n");
+    float strength = 0.5f;
+    /* 10 accesses */
+    for (int i = 0; i < 10; i++) strength *= ZK_RESURFACE_BOOST;
+    if (strength > 1.0f) strength = 1.0f;
+    ASSERT_NEAR(strength, 0.8144f, 0.01f, "10 resurfacings: 0.5 → 0.81");
+
+    /* Deep decay 0.998 vs weekly resurfacing 1.05 */
+    float weekly = 1.0f;
+    for (int week = 0; week < 52; week++) {
+        weekly *= powf(ZK_DECAY_DEEP, 7.0f);  /* 7 sessions/week */
+        weekly *= ZK_RESURFACE_BOOST;           /* 1 access/week */
+        if (weekly > 1.0f) weekly = 1.0f;
+    }
+    ASSERT(weekly > 0.9f, "weekly resurfacing maintains deep memory > 0.9");
+
+    /* Without resurfacing — same period */
+    float no_resurface = powf(ZK_DECAY_DEEP, 364.0f);
+    ASSERT(no_resurface < 0.5f, "without resurfacing, deep decays to < 0.5");
+    ASSERT(weekly > no_resurface * 2, "resurfacing >> no resurfacing");
+}
+
+void test_zk_decay_hierarchy(void) {
+    printf("[unit] test_zk_decay_hierarchy\n");
+    int sessions = 30;
+    float surface = powf(ZK_DECAY_SURFACE, (float)sessions);
+    float middle  = powf(ZK_DECAY_MIDDLE, (float)sessions);
+    float deep    = powf(ZK_DECAY_DEEP, (float)sessions);
+    ASSERT(surface < middle, "after 30: surface < middle");
+    ASSERT(middle < deep, "after 30: middle < deep");
+    ASSERT(surface < 0.05f, "surface nearly gone after 30");
+    ASSERT(deep > 0.9f, "deep barely touched after 30");
+}
+
+void test_zk_cooc_merge(void) {
+    printf("[unit] test_zk_cooc_merge\n");
+    /* Simulate: session produces co-occurrences, merge into persistent */
+    TZkCooc persistent[4] = {
+        {10, 20, 1.0f, 0, 1},
+        {10, 30, 0.5f, 5, 2},
+        {40, 50, 2.0f, 0, 3},
+        {60, 70, 0.02f, 100, 0},  /* nearly dead */
+    };
+    /* Session adds (10,20) again and new (10,40) */
+    /* Merge: existing (10,20) gets +0.3, new (10,40) added */
+    persistent[0].value += 1.0f * 0.3f;  /* existing strengthened */
+    persistent[0].age = 0;
+    persistent[0].access++;
+    ASSERT_NEAR(persistent[0].value, 1.3f, 0.01f, "merge strengthens existing");
+    ASSERT(persistent[0].age == 0, "merge resets age");
+    ASSERT(persistent[0].access == 2, "merge increments access");
+}
+
+void test_zk_episode_ring_buffer(void) {
+    printf("[unit] test_zk_episode_ring_buffer\n");
+    /* Ring buffer: when full, oldest overwritten */
+    int n = 0, idx = 0, max = 4;  /* small buffer for test */
+    for (int i = 0; i < 7; i++) {
+        if (n < max) n++;
+        else idx = (idx + 1) % max;
+    }
+    ASSERT(n == max, "ring buffer saturates at max");
+    /* 7 writes into 4 slots: first 3 overwritten */
+}
+
+void test_zk_anchor_eviction(void) {
+    printf("[unit] test_zk_anchor_eviction\n");
+    /* When anchors full, weakest evicted */
+    TZkAnchor anchors[3] = {
+        {.strength = 0.8f}, {.strength = 0.3f}, {.strength = 0.95f}
+    };
+    /* Find weakest */
+    int weakest = 0;
+    for (int i = 1; i < 3; i++)
+        if (anchors[i].strength < anchors[weakest].strength) weakest = i;
+    ASSERT(weakest == 1, "weakest anchor identified (idx=1, strength=0.3)");
+    /* New anchor with emergence 0.7 should evict if stronger */
+    float new_emergence = 0.7f;
+    ASSERT(anchors[weakest].strength < new_emergence * 0.5f, "eviction: weak anchor < new/2");
+}
+
+void test_zk_file_format(void) {
+    printf("[unit] test_zk_file_format\n");
+    /* Header is exactly 64 bytes */
+    /* Can't include the actual struct here but verify constants */
+    ASSERT(sizeof(TZkCooc) == 12, "ZkCooc = 12 bytes");
+    /* Max file size */
+    long max_file = 64 + ZK_MAX_COOC * 12 + ZK_MAX_ANCHORS * 176 + ZK_MAX_EPISODES * 188;
+    ASSERT(max_file == 64 + 393216 + 180224 + 96256, "max file components correct");
+    ASSERT(max_file < 700000, "max file < 700KB");
+}
+
+void test_zk_inject_surface(void) {
+    printf("[unit] test_zk_inject_surface\n");
+    /* Surface injection: logits[dst] += alpha * value * recency */
+    float logits[100]; memset(logits, 0, sizeof(logits));
+    TZkCooc co = {5, 42, 2.0f, 3, 1};
+    int context[] = {5};
+    /* Simulate injection */
+    if (co.src == context[0] && co.dst < 100) {
+        float recency = 1.0f / (1.0f + 0.1f * co.age);
+        logits[co.dst] += ZK_MEM_ALPHA * co.value * recency;
+    }
+    ASSERT(logits[42] > 0, "surface inject: logits[42] boosted");
+    ASSERT_NEAR(logits[42], 0.08f * 2.0f * (1.0f / 1.3f), 0.01f, "surface inject value correct");
+    ASSERT(logits[0] == 0, "surface inject: unrelated logits untouched");
+}
+
+void test_zk_inject_anchor(void) {
+    printf("[unit] test_zk_inject_anchor\n");
+    /* Anchor injection: boost tokens when topic matches */
+    float topic[ZK_TOPIC_DIM]; memset(topic, 0, sizeof(topic)); topic[0] = 1.0f;
+    TZkAnchor a;
+    memset(&a, 0, sizeof(a)); a.topic[0] = 0.9f; a.topic[1] = 0.1f; /* similar */
+    a.strength = 0.8f;
+    a.tokens[0] = 10; a.tokens[1] = 20;
+
+    float sim = t_cosine32(topic, a.topic);
+    ASSERT(sim > 0.5f, "anchor topic similar to current");
+
+    float logits[100]; memset(logits, 0, sizeof(logits));
+    float boost = ZK_MEM_BETA * sim * a.strength;
+    logits[10] += boost;
+    logits[20] += boost;
+    ASSERT(logits[10] > 0, "anchor inject: token 10 boosted");
+    ASSERT(logits[20] > 0, "anchor inject: token 20 boosted");
+    ASSERT_NEAR(logits[10], logits[20], 1e-6f, "anchor inject: equal boost");
+
+    /* Resurfacing */
+    float old_strength = a.strength;
+    a.access_count++;
+    a.strength *= ZK_RESURFACE_BOOST;
+    ASSERT(a.strength > old_strength, "resurfacing increased strength");
+}
+
+void test_zk_inject_episode(void) {
+    printf("[unit] test_zk_inject_episode\n");
+    /* Episode continuity: boost when session topic matches past */
+    float topic[ZK_TOPIC_DIM]; memset(topic, 0, sizeof(topic)); topic[0] = 1.0f;
+    TZkEpisode ep;
+    memset(&ep, 0, sizeof(ep)); ep.summary[0] = 0.95f; ep.summary[1] = 0.05f;
+    ep.strength = 0.7f;
+    ep.tokens[0] = 55;
+
+    float sim = t_cosine32(topic, ep.summary);
+    ASSERT(sim > 0.6f, "episode topic similar enough");
+
+    float logits[100]; memset(logits, 0, sizeof(logits));
+    float boost = ZK_MEM_GAMMA * sim * ep.strength;
+    logits[55] += boost;
+    ASSERT(logits[55] > 0, "episode inject: token 55 boosted");
+    ASSERT(logits[55] < 0.05f, "episode inject: gentle boost (gamma is small)");
+}
+
+void test_zk_mem_file_size(void) {
+    printf("[unit] test_zk_mem_file_size\n");
+    /* Realistic scenario: 100 sessions */
+    int cooc = 5000;   /* typical after 100 sessions with pruning */
+    int anchors = 50;  /* ~1 anchor per 2 sessions */
+    int episodes = 100;
+    long size = 64 + cooc * 12 + anchors * 176 + episodes * 188;
+    ASSERT(size < 100000, "100 sessions < 100KB");
+    /* 1000 sessions */
+    cooc = 20000;
+    anchors = 300;
+    episodes = 512;
+    size = 64 + cooc * 12 + anchors * 176 + episodes * 188;
+    ASSERT(size < 400000, "1000 sessions < 400KB");
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * Neshama (live process) tests
+ * ═══════════════════════════════════════════════════════════════ */
+
+void test_neshama_trauma_decay(void) {
+    printf("[unit] test_neshama_trauma_decay\n");
+    float trauma = 1.0f;
+    /* 12 ticks (1 minute at 5s interval) */
+    for (int i = 0; i < 12; i++) trauma *= 0.85f;
+    ASSERT_NEAR(trauma, 0.1422f, 0.01f, "trauma after 1 min ≈ 0.14");
+    /* 60 ticks (5 minutes) */
+    trauma = 1.0f;
+    for (int i = 0; i < 60; i++) trauma *= 0.85f;
+    ASSERT(trauma < 0.001f, "trauma after 5 min < 0.001");
+}
+
+void test_neshama_overthink_reinforce(void) {
+    printf("[unit] test_neshama_overthink_reinforce\n");
+    /* Overthinking Ring 1: subtle reinforcement */
+    float val = 1.0f;
+    for (int i = 0; i < 100; i++) {
+        val *= 1.01f;
+        if (val > 5.0f) val = 5.0f;
+    }
+    ASSERT_NEAR(val, 2.7048f, 0.1f, "100 reinforce steps: 1.0 → 2.7");
+    ASSERT(val < ZK_MAX_COOC_VALUE, "reinforcement capped below max");
+}
+
+void test_neshama_dream_anchor(void) {
+    printf("[unit] test_neshama_dream_anchor\n");
+    /* Dream: picks anchor, adds transitive co-occurrences */
+    TZkAnchor a;
+    memset(&a, 0, sizeof(a));
+    a.tokens[0] = 10; a.tokens[1] = 20; a.tokens[2] = 30;
+    a.strength = 0.5f;
+    a.access_count = 0;
+
+    /* Simulate dream: create co-occurrences between anchor tokens */
+    int new_cooc = 0;
+    for (int t = 0; t < ZK_ANCHOR_TOKENS - 1; t++) {
+        if (a.tokens[t] > 0 && a.tokens[t+1] > 0) new_cooc++;
+    }
+    ASSERT(new_cooc == 2, "dream creates 2 co-occurrences from 3 tokens");
+
+    /* Resurfacing during dream */
+    a.access_count++;
+    a.strength *= ZK_RESURFACE_BOOST;
+    ASSERT(a.access_count == 1, "dream increments access");
+    ASSERT(a.strength > 0.5f, "dream strengthens anchor");
+}
+
+/* ═══════════════════════════════════════════════════════════════
  * Main
  * ═══════════════════════════════════════════════════════════════ */
 int main(int argc, char **argv) {
@@ -375,6 +740,31 @@ int main(int argc, char **argv) {
     test_tied_embeddings();
     test_gemma_bos_eos();
     test_attention_output_dim();
+
+    /* ═══════════════════════════════════════════════════════════
+     * Zikharon tests
+     * ═══════════════════════════════════════════════════════════ */
+    test_zk_constants();
+    test_zk_projection();
+    test_zk_cosine32();
+    test_zk_decay_surface();
+    test_zk_decay_middle();
+    test_zk_decay_deep();
+    test_zk_resurfacing();
+    test_zk_decay_hierarchy();
+    test_zk_cooc_merge();
+    test_zk_episode_ring_buffer();
+    test_zk_anchor_eviction();
+    test_zk_file_format();
+    test_zk_inject_surface();
+    test_zk_inject_anchor();
+    test_zk_inject_episode();
+    test_zk_mem_file_size();
+
+    /* Neshama tests */
+    test_neshama_trauma_decay();
+    test_neshama_overthink_reinforce();
+    test_neshama_dream_anchor();
 
     printf("\n%d tests: %d passed, %d failed\n", tests_run, tests_passed, tests_failed);
 

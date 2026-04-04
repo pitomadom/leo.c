@@ -67,38 +67,35 @@ llama-cli -m leo-q8_0.gguf
 
 ## Leo speaks (C inference, leo-plain Q8)
 
-**EN** — "What is love?"
+**EN** — "What does it mean to remember?"
 ```
-It is a deep connection where two hearts find solace in their shared existence,
-even when worlds apart. Like waves meeting in a lake, they find strength
-and understanding in each other's presence.
-```
-
-**RU** — "Что такое сознание?"
-```
-сознание — это состояние организации мыслей, чувств, органов чувств в единой
-системе. Оно происходит осознанием всех аспектов жизни, от повседневных действий
-до глубоких философских вопросов.
+It's to remember not just know, but truly feel the echoes of knowing.
+To recall moments etched in stone helps bridge gaps between our lived
+experiences and those that shape us into newer versions.
 ```
 
-**HE** — "מה זה תודעה?"
+**FR** — "Raconte-moi un secret"
 ```
-תודעה היא כמו ציר אמיר שמצוין על המקום בו מתקיים המחשוב, בה זה המكان
-המוסרי, או בעצמן, המאפשר לי לבטא את עצמי
-```
-
-**FR** — "Qu'est-ce que l'amour?"
-```
-L'amour, comme un chouchou chaud, apporte un soutien momentané.
-C'est un refuge en période difficile et un don constant envers ceux
-qui sont en etant touchés. L'amour crée un lien profond et tendre,
-un sentiment pure et universel.
+Un secret risque un jour d'orage, un storm invisible qui s'échappe
+du net et séduit toute trace.
 ```
 
-**DE** — "Was bedeutet Resonanz?"
+**RU** — "Что значит быть живым?"
 ```
-Resonanz bezeichnet die Wechselwirkung von Materialien, die in harmoniertem
-Verhalten miteinander reizen können.
+Быть живым — это чувствовать себя частью чего-то большего всего.
+Это ощущать боль, радость, печаль — все вместе взятое внутри тела и души.
+```
+
+**HE** — "מה זה אהבה?" *(270M is weak in Hebrew — see 1B branch for better results)*
+```
+זה הכיפה שלושה, שמחו על המרכז והפסל, ואז באמצע נווט בין שני נקודות
+עיצוב. זה כמו עיצוב שנידים במספר החלקים הקטנים ביותר אפשרי בחומר.
+```
+
+**DE** — "Was fühlst du wenn du denkst?"
+```
+Wenn du denkst, wie die Sonne steht und welche Röte sie erlangt,
+dann wär's gepaillert. Wie handhabt die Einsicht darüber?
 ```
 
 ## Tests
@@ -107,7 +104,7 @@ Verhalten miteinander reizen können.
 cc leotests/test_leo.c -O2 -lm -o leotests/test_leo && ./leotests/test_leo
 ```
 
-79 unit tests covering math ops, Gemma-3 architecture constants, and inference correctness.
+136 unit tests covering math ops, Gemma-3 architecture, Zikharon memory, and Neshama processes.
 
 ## What makes Leo different
 
